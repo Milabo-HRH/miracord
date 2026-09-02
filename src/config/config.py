@@ -31,7 +31,17 @@ class Config:
     """
 
     # Supported AI service providers
-    SUPPORTED_AI_PROVIDERS: frozenset[str] = frozenset({"openai", "gemini"})
+    SUPPORTED_AI_PROVIDERS: frozenset[str] = frozenset(
+        {"gemini", "grok", "openai", "desktop_voice"}
+    )
+    SUPPORTED_SPEECH_POLICIES: frozenset[str] = frozenset(
+        {"barge_in", "hold", "ignore"}
+    )
+    SUPPORTED_SEARCH_MODES: frozenset[str] = frozenset({"auto", "off"})
+    SUPPORTED_VOICE_ACCESS_MODES: frozenset[str] = frozenset({"implicit", "explicit"})
+    SUPPORTED_WAKE_WORD_ENGINES: frozenset[str] = frozenset(
+        {"openwakeword", "sherpa_onnx"}
+    )
 
     BASE_DIR: Path = (
         Path(__file__).resolve().parent.parent.parent
@@ -39,19 +49,112 @@ class Config:
 
     # --- Core Bot Settings ---
     DISCORD_TOKEN: Optional[str] = os.getenv("DISCORD_TOKEN")
+    _DISCORD_SYNC_GUILD_ID_RAW: str = os.getenv("DISCORD_SYNC_GUILD_ID", "").strip()
+    DISCORD_SYNC_GUILD_ID: Optional[int] = (
+        int(_DISCORD_SYNC_GUILD_ID_RAW) if _DISCORD_SYNC_GUILD_ID_RAW else None
+    )
     COMMAND_PREFIX: str = os.getenv("COMMAND_PREFIX", "/")  # Prefix for bot commands
-    # Determines which AI service manager to use ("openai" or "gemini")
-    AI_SERVICE_PROVIDER: str = os.getenv("AI_SERVICE_PROVIDER", "openai").lower()
+    ENABLE_PREFIX_COMMANDS: bool = os.getenv(
+        "ENABLE_PREFIX_COMMANDS", "false"
+    ).lower() in {"1", "true", "yes", "on"}
+    # Gemini and Grok are the V1 first-class providers. OpenAI remains available
+    # for backwards compatibility with the upstream project.
+    AI_SERVICE_PROVIDER: str = os.getenv(
+        "AI_SERVICE_PROVIDER", os.getenv("AI_PROVIDER", "gemini")
+    ).lower()
 
     # --- Voice & Connection Settings ---
-    CONNECTION_TIMEOUT: int = (
-        15 * 60
-    )  # Timeout for voice channel connections in seconds
+    CONNECTION_TIMEOUT: int = int(os.getenv("CONNECTION_TIMEOUT_SECONDS", "900"))
     CONNECTION_CHECK_INTERVAL: float = float(
         os.getenv("CONNECTION_CHECK_INTERVAL", "10.0")
     )
     AI_SERVICE_CONNECTION_TIMEOUT: float = 30.0  # Timeout for AI service connections
     CHUNK_DURATION_MS: int = 500  # Duration of audio chunks in milliseconds
+
+    # --- Shared Conversation Settings ---
+    SESSION_ROUTING_MODE: str = os.getenv(
+        "SESSION_ROUTING_MODE", "guild_serial"
+    ).lower()
+    ACTIVE_PARTICIPANT_SPEECH_POLICY: str = os.getenv(
+        "ACTIVE_PARTICIPANT_SPEECH_POLICY", "barge_in"
+    ).lower()
+    NEW_PARTICIPANT_WAKE_POLICY: str = os.getenv(
+        "NEW_PARTICIPANT_WAKE_POLICY", "barge_in"
+    ).lower()
+    CONVERSATION_IDLE_TIMEOUT_SECONDS: float = float(
+        os.getenv("CONVERSATION_IDLE_TIMEOUT_SECONDS", "10")
+    )
+    LIVE_INPUT_SILENCE_TIMEOUT_MS: int = int(
+        os.getenv("LIVE_INPUT_SILENCE_TIMEOUT_MS", "10000")
+    )
+    HELD_TURN_MAX_SECONDS: float = float(os.getenv("HELD_TURN_MAX_SECONDS", "30"))
+    HELD_TURN_QUEUE_MAX: int = int(os.getenv("HELD_TURN_QUEUE_MAX", "4"))
+    VOICE_ACCESS_MODE: str = os.getenv("VOICE_ACCESS_MODE", "implicit").lower()
+
+    # Provider-native search only. V1 intentionally has no MCP/search bridge.
+    NATIVE_WEB_SEARCH_MODE: str = os.getenv("NATIVE_WEB_SEARCH_MODE", "auto").lower()
+    PREFERRED_SEARCH_SOURCES: tuple[str, ...] = tuple(
+        source.strip()
+        for source in os.getenv(
+            "PREFERRED_SEARCH_SOURCES",
+            ("op.gg,leagueoflegends.com,wiki.leagueoflegends.com," "reddit.com/r/ARAM"),
+        ).split(",")
+        if source.strip()
+    )
+    ASSISTANT_SYSTEM_INSTRUCTIONS: str = os.getenv(
+        "ASSISTANT_SYSTEM_INSTRUCTIONS", ""
+    ).strip() or (
+        "You are a concise shared Discord voice assistant for people playing games "
+        "together. Reply in the language used by the speaker and optimize answers "
+        "for spoken delivery. For League of Legends, ARAM, ARAM Mayhem, patches, "
+        "champions, items, builds, mechanics, or any fact that may have changed, "
+        "always use native web search before answering. Prefer and cross-check these "
+        "sources in order when relevant: "
+        + ", ".join(PREFERRED_SEARCH_SOURCES)
+        + ". Prefer official patch notes for rules and patch behavior, current data "
+        "sites for statistics, and label Reddit claims as community discussion rather "
+        "than verified fact. If reliable sources conflict, say so briefly. Never claim "
+        "to have searched when no search was performed."
+    )
+    GROK_X_SEARCH_ENABLED: bool = os.getenv(
+        "GROK_X_SEARCH_ENABLED", "false"
+    ).lower() in {"1", "true", "yes", "on"}
+
+    # Desktop Voice bridge.  The bot writes Discord audio to the first
+    # Voicemeeter virtual input and captures ChatGPT/Codex Voice from AUX.
+    DESKTOP_VOICE_SEND_DEVICE: str = os.getenv(
+        "DESKTOP_VOICE_SEND_DEVICE", "Voicemeeter Input"
+    ).strip()
+    DESKTOP_VOICE_RECEIVE_DEVICE: str = os.getenv(
+        "DESKTOP_VOICE_RECEIVE_DEVICE", "Voicemeeter Out B2"
+    ).strip()
+    DESKTOP_VOICE_HOST_API: str = os.getenv("DESKTOP_VOICE_HOST_API", "MME").strip()
+    DESKTOP_VOICE_SAMPLE_RATE: int = int(
+        os.getenv("DESKTOP_VOICE_SAMPLE_RATE", "48000")
+    )
+    DESKTOP_VOICE_CHANNELS: int = int(os.getenv("DESKTOP_VOICE_CHANNELS", "2"))
+    DESKTOP_VOICE_FRAME_MS: int = int(os.getenv("DESKTOP_VOICE_FRAME_MS", "20"))
+    DESKTOP_VOICE_RESPONSE_START_MS: int = int(
+        os.getenv("DESKTOP_VOICE_RESPONSE_START_MS", "60")
+    )
+    DESKTOP_VOICE_RESPONSE_SILENCE_MS: int = int(
+        os.getenv("DESKTOP_VOICE_RESPONSE_SILENCE_MS", "900")
+    )
+    DESKTOP_VOICE_RESPONSE_PREROLL_MS: int = int(
+        os.getenv("DESKTOP_VOICE_RESPONSE_PREROLL_MS", "200")
+    )
+    DESKTOP_VOICE_VAD_AGGRESSIVENESS: int = int(
+        os.getenv("DESKTOP_VOICE_VAD_AGGRESSIVENESS", "1")
+    )
+    DESKTOP_VOICE_AUTO_ROUTE: bool = os.getenv(
+        "DESKTOP_VOICE_AUTO_ROUTE", "true"
+    ).lower() in {"1", "true", "yes", "on"}
+    VOICEMEETER_REMOTE_DLL: Path = Path(
+        os.getenv(
+            "VOICEMEETER_REMOTE_DLL",
+            r"C:\Program Files (x86)\VB\Voicemeeter\VoicemeeterRemote64.dll",
+        )
+    )
 
     # --- UI/UX Settings ---
     REACTION_GRANT_CONSENT: str = os.getenv("REACTION_GRANT_CONSENT", "👂")
@@ -87,12 +190,25 @@ class Config:
     FFMPEG_PROCESS_CLEANUP_TIMEOUT: float = 2.0  # Seconds to wait for FFmpeg cleanup
 
     # --- Wake Word & VAD Settings ---
+    WAKE_WORD_ENGINE: str = os.getenv("WAKE_WORD_ENGINE", "sherpa_onnx").lower()
+    WAKE_WORD_PHRASE: str = os.getenv("WAKE_WORD_PHRASE", "豆包豆包").strip()
     # openWakeWord settings
     WAKE_WORD_MODEL_PATH: Path = BASE_DIR / "assets/wakeword_models/alexa_v0.1.onnx"
     WAKE_WORD_THRESHOLD: float = 0.5  # Confidence threshold for detection
     # VAD inside openWakeWord to improve ww accuracy.
     WAKE_WORD_VAD_THRESHOLD: float = 0.5
     WAKE_WORD_SAMPLE_RATE: int = 16000  # Sample rate for wake word model (Hz)
+    SHERPA_WAKE_WORD_MODEL_DIR: Path = BASE_DIR / (
+        "assets/wakeword_models/"
+        "sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01"
+    )
+    SHERPA_WAKE_WORD_KEYWORDS_PATH: Path = (
+        SHERPA_WAKE_WORD_MODEL_DIR / "keywords_doubao.txt"
+    )
+    SHERPA_WAKE_WORD_SCORE: float = float(os.getenv("SHERPA_WAKE_WORD_SCORE", "1.0"))
+    SHERPA_WAKE_WORD_THRESHOLD: float = float(
+        os.getenv("SHERPA_WAKE_WORD_THRESHOLD", "0.25")
+    )
 
     # webrtcvad settings for end-of-speech detection
     VAD_SAMPLE_RATE: int = 16000  # Sample rate for VAD processing (Hz)
@@ -119,6 +235,7 @@ class Config:
     # --- API Keys ---
     OPENAI_API_KEY: Optional[str] = os.getenv("OPENAI_API_KEY")
     GEMINI_API_KEY: Optional[str] = os.getenv("GEMINI_API_KEY")
+    XAI_API_KEY: Optional[str] = os.getenv("XAI_API_KEY")
 
     @classmethod
     def validate(cls) -> None:
@@ -138,12 +255,90 @@ class Config:
             raise ConfigurationError(
                 "DISCORD_TOKEN environment variable not set or empty."
             )
+        if cls.DISCORD_SYNC_GUILD_ID is not None and cls.DISCORD_SYNC_GUILD_ID <= 0:
+            raise ConfigurationError(
+                "DISCORD_SYNC_GUILD_ID must be a positive integer."
+            )
 
         # Validate that AI_SERVICE_PROVIDER has a recognized value
         if cls.AI_SERVICE_PROVIDER not in cls.SUPPORTED_AI_PROVIDERS:
             raise ConfigurationError(
                 f"Unsupported AI_SERVICE_PROVIDER: '{cls.AI_SERVICE_PROVIDER}'. "
                 f"Must be one of: {', '.join(sorted(cls.SUPPORTED_AI_PROVIDERS))}"
+            )
+
+        if cls.SESSION_ROUTING_MODE != "guild_serial":
+            raise ConfigurationError(
+                "V1 supports only SESSION_ROUTING_MODE='guild_serial'."
+            )
+
+        for setting_name, policy in (
+            (
+                "ACTIVE_PARTICIPANT_SPEECH_POLICY",
+                cls.ACTIVE_PARTICIPANT_SPEECH_POLICY,
+            ),
+            ("NEW_PARTICIPANT_WAKE_POLICY", cls.NEW_PARTICIPANT_WAKE_POLICY),
+        ):
+            if policy not in cls.SUPPORTED_SPEECH_POLICIES:
+                raise ConfigurationError(
+                    f"Unsupported {setting_name}: '{policy}'. Must be one of: "
+                    f"{', '.join(sorted(cls.SUPPORTED_SPEECH_POLICIES))}"
+                )
+
+        if cls.NATIVE_WEB_SEARCH_MODE not in cls.SUPPORTED_SEARCH_MODES:
+            raise ConfigurationError(
+                f"Unsupported NATIVE_WEB_SEARCH_MODE: "
+                f"'{cls.NATIVE_WEB_SEARCH_MODE}'. Must be one of: "
+                f"{', '.join(sorted(cls.SUPPORTED_SEARCH_MODES))}"
+            )
+        if cls.VOICE_ACCESS_MODE not in cls.SUPPORTED_VOICE_ACCESS_MODES:
+            raise ConfigurationError(
+                f"Unsupported VOICE_ACCESS_MODE: '{cls.VOICE_ACCESS_MODE}'. "
+                "Must be one of: "
+                f"{', '.join(sorted(cls.SUPPORTED_VOICE_ACCESS_MODES))}"
+            )
+        if cls.WAKE_WORD_ENGINE not in cls.SUPPORTED_WAKE_WORD_ENGINES:
+            raise ConfigurationError(
+                f"Unsupported WAKE_WORD_ENGINE: '{cls.WAKE_WORD_ENGINE}'. "
+                "Must be one of: "
+                f"{', '.join(sorted(cls.SUPPORTED_WAKE_WORD_ENGINES))}"
+            )
+        if not cls.WAKE_WORD_PHRASE:
+            raise ConfigurationError("WAKE_WORD_PHRASE must not be empty.")
+        if cls.CONVERSATION_IDLE_TIMEOUT_SECONDS <= 0:
+            raise ConfigurationError(
+                "CONVERSATION_IDLE_TIMEOUT_SECONDS must be greater than zero."
+            )
+        if cls.LIVE_INPUT_SILENCE_TIMEOUT_MS <= 0:
+            raise ConfigurationError(
+                "LIVE_INPUT_SILENCE_TIMEOUT_MS must be greater than zero."
+            )
+        if cls.HELD_TURN_MAX_SECONDS <= 0 or cls.HELD_TURN_QUEUE_MAX <= 0:
+            raise ConfigurationError(
+                "HELD_TURN_MAX_SECONDS and HELD_TURN_QUEUE_MAX must be greater than zero."
+            )
+        if cls.DESKTOP_VOICE_SAMPLE_RATE not in (8000, 16000, 32000, 48000):
+            raise ConfigurationError(
+                "DESKTOP_VOICE_SAMPLE_RATE must be 8000, 16000, 32000, or 48000."
+            )
+        if cls.DESKTOP_VOICE_CHANNELS not in (1, 2):
+            raise ConfigurationError("DESKTOP_VOICE_CHANNELS must be 1 or 2.")
+        if cls.DESKTOP_VOICE_FRAME_MS not in (10, 20, 30):
+            raise ConfigurationError("DESKTOP_VOICE_FRAME_MS must be 10, 20, or 30.")
+        if cls.DESKTOP_VOICE_VAD_AGGRESSIVENESS not in (0, 1, 2, 3):
+            raise ConfigurationError(
+                "DESKTOP_VOICE_VAD_AGGRESSIVENESS must be an integer from 0 to 3."
+            )
+        if (
+            min(
+                cls.DESKTOP_VOICE_RESPONSE_START_MS,
+                cls.DESKTOP_VOICE_RESPONSE_SILENCE_MS,
+                cls.DESKTOP_VOICE_RESPONSE_PREROLL_MS,
+            )
+            <= 0
+        ):
+            raise ConfigurationError(
+                "Desktop Voice response timing values must be greater than zero."
             )
 
         # Validate logging configuration

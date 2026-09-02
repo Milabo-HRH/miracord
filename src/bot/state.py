@@ -43,6 +43,7 @@ class RecordingMethod(Enum):
 
     PushToTalk = auto()
     WakeWord = auto()
+    Conversation = auto()
 
 
 StateEvent = Union[StateChangedEvent, ProviderChangedEvent]
@@ -91,6 +92,8 @@ class BotState:
         self._listeners: List[Callable[[StateEvent], Awaitable[None]]] = []
         # A set of user IDs who have granted consent to be recorded.
         self._consented_user_ids: Set[int] = set()
+        # Users who passed the local wake gate for the current shared conversation.
+        self._active_participant_ids: Set[int] = set()
         # Session tracking to prevent cross-session state corruption
         self._current_session_id: int = 0
 
@@ -140,6 +143,23 @@ class BotState:
         """Get a copy of the set of user IDs who have consented to be recorded."""
         return self._consented_user_ids.copy()
 
+    def get_active_participant_ids(self) -> Set[int]:
+        """Get users whose audio upload gate is open in this conversation."""
+        return self._active_participant_ids.copy()
+
+    def is_active_participant(self, user_id: int) -> bool:
+        return user_id in self._active_participant_ids
+
+    async def add_active_participant(self, user_id: int) -> None:
+        """Open the upload gate for one user after a positive wake detection."""
+        self._active_participant_ids.add(user_id)
+
+    async def remove_active_participant(self, user_id: int) -> None:
+        self._active_participant_ids.discard(user_id)
+
+    async def clear_active_participants(self) -> None:
+        self._active_participant_ids.clear()
+
     @property
     def current_session_id(self) -> int:
         """Get the current session ID for tracking cross-session state corruption."""
@@ -187,6 +207,7 @@ class BotState:
     async def revoke_consent(self, user_id: int) -> None:
         """Removes a user's ID from the consent list."""
         self._consented_user_ids.discard(user_id)
+        self._active_participant_ids.discard(user_id)
 
     async def set_active_ai_provider_name(self, provider_name: str) -> None:
         """
@@ -289,6 +310,7 @@ class BotState:
             return
 
         self._consented_user_ids.clear()
+        self._active_participant_ids.clear()
         await self._set_state(BotStateEnum.IDLE)
         self._reset_authority()  # Reset authority
 

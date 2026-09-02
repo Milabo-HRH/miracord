@@ -12,6 +12,7 @@ import discord
 from discord.ext import commands
 
 from src.bot.cogs.voice_cog import VoiceCog
+from src.bot.state import BotStateEnum
 from src.exceptions import SessionError, StateTransitionError
 
 
@@ -165,10 +166,24 @@ class TestVoiceCogCommands:
     @pytest.mark.asyncio
     async def test_connect_command_success(self, voice_cog, mock_ctx):
         """Test successful connect command."""
-        with patch.object(voice_cog, "_handle_connect_command") as mock_handle:
+        mock_ctx.interaction = MagicMock()
+        mock_ctx.author.voice = MagicMock()
+        mock_ctx.author.voice.channel.name = "Lobby"
+        with patch.object(
+            voice_cog,
+            "_handle_connect_command",
+            new=AsyncMock(return_value=True),
+        ) as mock_handle:
             # Call the actual callback method, not the command wrapper
             await voice_cog.connect_command.callback(voice_cog, mock_ctx)
-            mock_handle.assert_called_once_with(mock_ctx)
+            mock_ctx.defer.assert_not_awaited()
+            mock_ctx.send.assert_awaited_once_with(
+                "🔌 Connecting to Discord voice and the AI provider…"
+            )
+            mock_handle.assert_awaited_once_with(mock_ctx)
+            mock_ctx.send.return_value.edit.assert_awaited_once_with(
+                content="✅ Connected to **Lobby**."
+            )
 
     @pytest.mark.asyncio
     async def test_handle_connect_command_already_connected(self, voice_cog, mock_ctx):
@@ -261,11 +276,47 @@ class TestVoiceCogCommands:
 
         await voice_cog.set_provider_command.callback(voice_cog, mock_ctx, "openai")
 
-        mock_ctx.send.assert_called_once_with(
+        mock_ctx.send.assert_any_await(
             "An unexpected internal error occurred. The session will now terminate."
+        )
+        mock_ctx.send.return_value.edit.assert_awaited_once_with(
+            content="❌ Provider switch failed."
         )
         mock_session.cleanup.assert_called_once()
         assert 789 not in voice_cog._sessions
+
+    @pytest.mark.asyncio
+    async def test_talk_command_starts_recording(self, voice_cog, mock_ctx):
+        mock_session = AsyncMock()
+        mock_session.bot_state.current_state = BotStateEnum.STANDBY
+        voice_cog._sessions[789] = mock_session
+
+        await voice_cog.talk_command.callback(voice_cog, mock_ctx)
+
+        mock_session.handle_pushtotalk_reaction.assert_awaited_once_with(
+            mock_ctx.author, added=True
+        )
+        mock_ctx.send.assert_awaited_once_with(
+            "🔴 Live input started. Speak naturally and stop; "
+            "server VAD will answer automatically. Run `/talk` again only "
+            "to force-submit."
+        )
+
+    @pytest.mark.asyncio
+    async def test_talk_command_stops_recording(self, voice_cog, mock_ctx):
+        mock_session = AsyncMock()
+        mock_session.bot_state.current_state = BotStateEnum.RECORDING
+        mock_session.bot_state.is_authorized.return_value = True
+        voice_cog._sessions[789] = mock_session
+
+        await voice_cog.talk_command.callback(voice_cog, mock_ctx)
+
+        mock_session.handle_pushtotalk_reaction.assert_awaited_once_with(
+            mock_ctx.author, added=False
+        )
+        mock_ctx.send.assert_awaited_once_with(
+            "✅ Submitted to the voice assistant."
+        )
 
     @pytest.mark.asyncio
     async def test_disconnect_command_no_session(self, voice_cog, mock_ctx):
@@ -296,8 +347,11 @@ class TestVoiceCogCommands:
 
         await voice_cog.disconnect_command.callback(voice_cog, mock_ctx)
 
-        mock_ctx.send.assert_called_once_with(
+        mock_ctx.send.assert_any_await(
             "An unexpected internal error occurred during cleanup. The session has been forcefully removed."
+        )
+        mock_ctx.send.return_value.edit.assert_awaited_once_with(
+            content="❌ Disconnect failed."
         )
         assert 789 not in voice_cog._sessions
 
@@ -322,8 +376,11 @@ class TestVoiceCogCommands:
 
         await voice_cog.disconnect_command.callback(voice_cog, mock_ctx)
 
-        mock_ctx.send.assert_called_once_with(
+        mock_ctx.send.assert_any_await(
             "An error occurred during cleanup. The session has been forcefully removed."
+        )
+        mock_ctx.send.return_value.edit.assert_awaited_once_with(
+            content="❌ Disconnect failed."
         )
         assert 789 not in voice_cog._sessions
 
@@ -427,6 +484,54 @@ class TestVoiceCogEventHandlers:
         await voice_cog.on_voice_state_update(mock_member, before, after)
 
         mock_session.handle_voice_connection_update.assert_called_once_with(False)
+
+    @pytest.mark.asyncio
+    @patch("src.bot.cogs.voice_cog.Config.VOICE_ACCESS_MODE", "implicit")
+    async def test_member_joining_bot_channel_gets_implicit_voice_access(
+        self, voice_cog
+    ):
+        channel = MagicMock(spec=discord.VoiceChannel)
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = 789
+        guild.voice_client = MagicMock(channel=channel)
+        member = MagicMock(spec=discord.Member)
+        member.id = 99999
+        member.bot = False
+        member.guild = guild
+        before = MagicMock(spec=discord.VoiceState, channel=None)
+        after = MagicMock(spec=discord.VoiceState, channel=channel)
+        mock_session = AsyncMock()
+        voice_cog._sessions[789] = mock_session
+
+        await voice_cog.on_voice_state_update(member, before, after)
+
+        mock_session.handle_voice_member_access.assert_awaited_once_with(
+            member, joined=True
+        )
+
+    @pytest.mark.asyncio
+    @patch("src.bot.cogs.voice_cog.Config.VOICE_ACCESS_MODE", "implicit")
+    async def test_member_leaving_bot_channel_loses_implicit_voice_access(
+        self, voice_cog
+    ):
+        channel = MagicMock(spec=discord.VoiceChannel)
+        guild = MagicMock(spec=discord.Guild)
+        guild.id = 789
+        guild.voice_client = MagicMock(channel=channel)
+        member = MagicMock(spec=discord.Member)
+        member.id = 99999
+        member.bot = False
+        member.guild = guild
+        before = MagicMock(spec=discord.VoiceState, channel=channel)
+        after = MagicMock(spec=discord.VoiceState, channel=None)
+        mock_session = AsyncMock()
+        voice_cog._sessions[789] = mock_session
+
+        await voice_cog.on_voice_state_update(member, before, after)
+
+        mock_session.handle_voice_member_access.assert_awaited_once_with(
+            member, joined=False
+        )
 
     @pytest.mark.asyncio
     async def test_on_reaction_add_no_guild(self, voice_cog):

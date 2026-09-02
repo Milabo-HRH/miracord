@@ -27,6 +27,7 @@ from src.audio.processing import (
     VAD_FORMAT,
     ProcessingStrategy,
 )
+from src.audio.wakeword import SherpaWakeWordModel
 from src.bot.state import BotState, BotStateEnum, RecordingMethod
 from src.config.config import Config
 from src.exceptions import SessionConsistencyError
@@ -204,6 +205,19 @@ class VADAnalyzer:
                     self._silence_frame_count = 0
             else:
                 self._speech_frame_count = 0
+                # A wake phrase can end before the realtime input gate opens.
+                # In that case this analyzer may never observe a post-wake
+                # speech frame. Treat a full timeout of initial silence as an
+                # empty turn instead of leaving the bot in RECORDING forever.
+                if (
+                    not self._triggered
+                    and self._frames_processed >= self._silence_frames_timeout
+                    and self._frames_processed > self._grace_period_frames
+                ):
+                    self._triggered = True
+                    self._loop.call_soon_threadsafe(
+                        asyncio.create_task, self._on_speech_end()
+                    )
         else:
             if not is_speech:
                 self._silence_frame_count += 1
@@ -301,22 +315,31 @@ class ManualControlSink(AudioSink):
         on_wake_word_detected: Callable[[discord.User], Awaitable[None]],
         on_vad_speech_end: Callable[[bytes], Awaitable[None]],
         action_lock: asyncio.Lock,
+        on_active_speech_detected: Optional[
+            Callable[[discord.User], Awaitable[None]]
+        ] = None,
+        on_recording_audio_chunk: Optional[
+            Callable[[discord.User, bytes], Awaitable[None]]
+        ] = None,
     ):
         super().__init__()
         self._bot_state = bot_state
         self._on_wake_word_detected = on_wake_word_detected
         self._on_vad_speech_end = on_vad_speech_end
+        self._on_active_speech_detected = on_active_speech_detected
+        self._on_recording_audio_chunk = on_recording_audio_chunk
         self._loop = asyncio.get_running_loop()
 
         # Initialize unified audio processor for real-time processing
         self._audio_processor = UnifiedAudioProcessor()
 
-        self._detectors: Dict[int, Model] = {}
+        self._detectors: Dict[int, Any] = {}
         self._user_audio_buffers: Dict[int, bytearray] = {}
         self._authority_buffer = bytearray()
         self._vad_raw_buffer = bytearray()
         self._vad_resampled_buffer = bytearray()
         self._ww_resampled_buffers: Dict[int, bytearray] = {}
+        self._active_speech_pending: Set[int] = set()
 
         # Thread-safe synchronization primitives for TOCTOU fix
         self._action_lock = action_lock
@@ -373,21 +396,30 @@ class ManualControlSink(AudioSink):
         try:
             # CONCURRENCY FIX: Use dedicated lock for all user data operations
             with self._user_data_lock:
-                # Validate wake word model file exists
-                model_path = str(Config.WAKE_WORD_MODEL_PATH)
-                if not Config.WAKE_WORD_MODEL_PATH.exists():
-                    raise FileNotFoundError(
-                        f"Wake word model file not found: {model_path}"
+                if Config.WAKE_WORD_ENGINE == "sherpa_onnx":
+                    self._detectors[user_id] = SherpaWakeWordModel(
+                        model_dir=Config.SHERPA_WAKE_WORD_MODEL_DIR,
+                        keywords_file=Config.SHERPA_WAKE_WORD_KEYWORDS_PATH,
+                        phrase=Config.WAKE_WORD_PHRASE,
+                        keywords_score=Config.SHERPA_WAKE_WORD_SCORE,
+                        keywords_threshold=Config.SHERPA_WAKE_WORD_THRESHOLD,
                     )
+                else:
+                    # Validate wake word model file exists
+                    model_path = str(Config.WAKE_WORD_MODEL_PATH)
+                    if not Config.WAKE_WORD_MODEL_PATH.exists():
+                        raise FileNotFoundError(
+                            f"Wake word model file not found: {model_path}"
+                        )
 
-                # Use the appropriate parameter name based on OpenWakeWord version
-                model_kwargs = {OWW_PARAM_NAME: [model_path]}
-                # Only add inference_framework and vad_threshold for 0.6+ (0.4.x doesn't support them)
-                if OWW_PARAM_NAME == "wakeword_models":
-                    model_kwargs["inference_framework"] = "onnx"
-                    model_kwargs["vad_threshold"] = Config.WAKE_WORD_VAD_THRESHOLD
+                    # Use the appropriate parameter name based on OpenWakeWord version
+                    model_kwargs = {OWW_PARAM_NAME: [model_path]}
+                    # Only add inference framework settings for openWakeWord 0.6+.
+                    if OWW_PARAM_NAME == "wakeword_models":
+                        model_kwargs["inference_framework"] = "onnx"
+                        model_kwargs["vad_threshold"] = Config.WAKE_WORD_VAD_THRESHOLD
 
-                self._detectors[user_id] = Model(**model_kwargs)
+                    self._detectors[user_id] = Model(**model_kwargs)
                 self._user_audio_buffers[user_id] = bytearray()
                 self._ww_resampled_buffers[user_id] = bytearray()
                 self._ww_buffer_locks[user_id] = (
@@ -427,6 +459,7 @@ class ManualControlSink(AudioSink):
         self._detectors.clear()
         self._user_audio_buffers.clear()
         self._authority_buffer.clear()
+        self._active_speech_pending.clear()
 
     def start(self):
         """
@@ -503,7 +536,9 @@ class ManualControlSink(AudioSink):
         # Track cleanup success for monitoring
         self._cleanup_metrics.record_comprehensive_cleanup(cleanup_stats)
 
-    def enable_vad(self, enabled: bool):
+    def enable_vad(
+        self, enabled: bool, *, silence_timeout_ms: Optional[int] = None
+    ):
         """
         Controls VAD processing for the current recording session.
 
@@ -524,7 +559,11 @@ class ManualControlSink(AudioSink):
                 sample_rate=Config.VAD_SAMPLE_RATE,
                 frame_duration_ms=Config.VAD_FRAME_DURATION_MS,
                 min_speech_duration_ms=Config.VAD_MIN_SPEECH_DURATION_MS,
-                silence_timeout_ms=Config.VAD_SILENCE_TIMEOUT_MS,
+                silence_timeout_ms=(
+                    Config.VAD_SILENCE_TIMEOUT_MS
+                    if silence_timeout_ms is None
+                    else silence_timeout_ms
+                ),
                 grace_period_ms=Config.VAD_GRACE_PERIOD_MS,
                 loop=self._loop,
             )
@@ -961,11 +1000,17 @@ class ManualControlSink(AudioSink):
                 )
                 # Don't wait to avoid blocking Discord's audio thread
 
-                # Conditionally process VAD only for wake word recordings
-                if (
-                    recording_method == RecordingMethod.WakeWord
-                    and self._is_vad_enabled
-                ):
+                if self._on_recording_audio_chunk:
+                    asyncio.run_coroutine_threadsafe(
+                        self._on_recording_audio_chunk(user, data.pcm),
+                        self._loop,
+                    )
+
+                # Local VAD normally handles buffered wake-word turns. It is also
+                # enabled as a safety net for provider-native realtime turns, so
+                # a provider that never closes a silent turn cannot leave the UI
+                # stuck in RECORDING forever.
+                if self._is_vad_enabled:
                     # VAD flag race fix: Thread-safe flag update
                     with self._vad_flag_lock:
                         self._has_received_audio_for_vad = True
@@ -974,7 +1019,24 @@ class ManualControlSink(AudioSink):
                         self._process_vad_async(data.pcm), self._loop
                     )
         elif current_state == BotStateEnum.STANDBY and user.id in self._detectors:
-            self._process_standby_audio(user, data)
+            is_active = self._bot_state.is_active_participant(user.id) is True
+            if is_active and self._on_active_speech_detected:
+                if user.id not in self._active_speech_pending:
+                    self._active_speech_pending.add(user.id)
+                    self._loop.call_soon_threadsafe(
+                        asyncio.create_task,
+                        self._notify_active_speech_detected(user),
+                    )
+            else:
+                self._process_standby_audio(user, data)
+
+    async def _notify_active_speech_detected(self, user: discord.User) -> None:
+        """Debounce active-user speech frames until routing changes bot state."""
+        try:
+            if self._on_active_speech_detected:
+                await self._on_active_speech_detected(user)
+        finally:
+            self._active_speech_pending.discard(user.id)
 
     async def _atomic_authority_buffer_update(
         self,
@@ -1042,7 +1104,11 @@ class ManualControlSink(AudioSink):
                 prediction = model.predict(ww_chunk_np)
                 logger.debug(f"Wake word prediction for user {user.id}: {prediction}")
 
-                model_name = Config.WAKE_WORD_MODEL_PATH.stem
+                model_name = (
+                    Config.WAKE_WORD_PHRASE
+                    if Config.WAKE_WORD_ENGINE == "sherpa_onnx"
+                    else Config.WAKE_WORD_MODEL_PATH.stem
+                )
 
                 if (
                     model_name in prediction

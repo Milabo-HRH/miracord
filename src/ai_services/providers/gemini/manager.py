@@ -6,12 +6,14 @@ the primary interface for the bot to interact with the Google Gemini Live API.
 It coordinates connection management, event sending, and event handling.
 """
 
+import asyncio
 from typing import Optional, Dict, Any, Callable, Awaitable
 
 from google import genai
 from google.genai import types
 
 from src.ai_services.base_manager import BaseRealtimeManager
+from src.ai_services.interface import ProviderCapabilities
 from src.audio.playback import AudioPlaybackManager
 from src.exceptions import AIServiceError
 from src.utils.logger import get_logger
@@ -74,6 +76,19 @@ class GeminiRealtimeManager(BaseRealtimeManager):
         )
 
     @property
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            native_web_search=bool(
+                self._service_config.get("native_web_search", False)
+            ),
+            manual_commit=True,
+            cancel_response=False,
+            image_input=True,
+            realtime_audio_input=True,
+            server_vad=True,
+        )
+
+    @property
     def _connection_handler(self) -> GeminiRealtimeConnection:
         return self._connection_handler_inst
 
@@ -106,7 +121,8 @@ class GeminiRealtimeManager(BaseRealtimeManager):
     async def send_audio_chunk(self, audio_data: bytes) -> bool:
         """
         Sends a chunk of raw audio data to the Gemini Live API.
-        The audio is wrapped in a types.Blob and sent via the `media` parameter.
+        The audio is wrapped in a types.Blob and sent via the dedicated `audio`
+        parameter. Gemini 3.1 rejects the legacy `media`/`media_chunks` wire field.
         """
         session = await self._get_active_session()
         if not session:
@@ -120,10 +136,16 @@ class GeminiRealtimeManager(BaseRealtimeManager):
             frame_rate, _ = self.processing_audio_format
             mime_type = f"audio/pcm;rate={frame_rate}"
 
-            # Wrap the audio data in a types.Blob and use the 'media' parameter.
-            audio_blob = types.Blob(data=audio_data, mime_type=mime_type)
-
-            await session.send_realtime_input(media=audio_blob)
+            # Gemini Live VAD expects microphone-like chunks rather than one
+            # multi-second blob. Send 100 ms PCM frames at realtime cadence.
+            bytes_per_second = frame_rate * self.processing_audio_format[1] * 2
+            chunk_size = max(1, bytes_per_second // 10)
+            for offset in range(0, len(audio_data), chunk_size):
+                chunk = audio_data[offset : offset + chunk_size]
+                audio_blob = types.Blob(data=chunk, mime_type=mime_type)
+                await session.send_realtime_input(audio=audio_blob)
+                if offset + chunk_size < len(audio_data):
+                    await asyncio.sleep(len(chunk) / bytes_per_second)
             logger.debug(
                 f"Sent audio chunk ({len(audio_data)} bytes) as Blob with MIME type '{mime_type}' to Gemini."
             )
@@ -213,4 +235,10 @@ class GeminiRealtimeManager(BaseRealtimeManager):
 
         # Since there's no server-side cancellation signal to send for Gemini based on current docs,
         # we consider the client-side action (stopping playback) as success.
+        return True
+
+    async def send_speaker_marker(self, user_id: int, display_name: str) -> bool:
+        # Realtime text is itself treated as user activity by Gemini Live and
+        # can create an empty turn before the following audio. The shared V1
+        # session therefore relies on acoustic speaker cues for Gemini.
         return True

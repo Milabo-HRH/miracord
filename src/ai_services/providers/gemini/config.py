@@ -9,13 +9,16 @@ from src.config.config import Config
 
 # Name of the Gemini model for real-time services.
 GEMINI_REALTIME_MODEL_NAME: str = os.getenv(
-    "GEMINI_REALTIME_MODEL_NAME",
-    "models/gemini-2.5-flash-preview-native-audio-dialog",  # Default from example
+    "GEMINI_MODEL",
+    os.getenv("GEMINI_REALTIME_MODEL_NAME", "gemini-3.1-flash-live-preview"),
 )
 
 # Default LiveConnectConfig parameters, can be overridden by environment or specific needs
 GEMINI_DEFAULT_LIVE_CONNECT_CONFIG: Dict[str, Any] = {
     "response_modalities": ["AUDIO"],  # Expect audio responses
+    "system_instruction": {
+        "parts": [{"text": Config.ASSISTANT_SYSTEM_INSTRUCTIONS}]
+    },
     "media_resolution": "MEDIA_RESOLUTION_MEDIUM",  # Default from example
     "speech_config": {  # Default from example
         "voice_config": {"prebuilt_voice_config": {"voice_name": "Zephyr"}}
@@ -25,6 +28,10 @@ GEMINI_DEFAULT_LIVE_CONNECT_CONFIG: Dict[str, Any] = {
         "sliding_window": {"target_tokens": 12800},
     },
 }
+
+if Config.NATIVE_WEB_SEARCH_MODE != "off":
+    # Provider-native grounding; V1 intentionally has no MCP/search bridge.
+    GEMINI_DEFAULT_LIVE_CONNECT_CONFIG["tools"] = [{"google_search": {}}]
 
 # Assembles the complete service configuration dictionary for Gemini.
 # This dictionary is imported by the bot's main entry point to be used in the factory.
@@ -37,4 +44,5 @@ GEMINI_SERVICE_CONFIG: Dict[str, Any] = {
     "processing_audio_channels": 1,
     "response_audio_frame_rate": 24000,  # As per Gemini docs
     "response_audio_channels": 1,
+    "native_web_search": Config.NATIVE_WEB_SEARCH_MODE != "off",
 }

@@ -241,7 +241,7 @@ async def test_set_active_ai_provider_name(bot_state: BotState):
     """
     # Arrange
     initial_provider = bot_state.active_ai_provider_name
-    new_provider = "gemini"
+    new_provider = "grok" if initial_provider == "gemini" else "gemini"
 
     # Act
     await bot_state.set_active_ai_provider_name(new_provider)

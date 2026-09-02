@@ -18,6 +18,16 @@ htmlcov/
 # Logs
 logs/
 
+# Local audio-routing diagnostics
+/audio-route-probe-*.json
+/voice-route-*.json
+/codex-screen.png
+/discord-*.png
+
+# Downloaded wake-word source bundles and unused sample assets
+/assets/wakeword_models/*.tar.bz2
+/assets/wakeword_models/sherpa-onnx-kws-zipformer-wenetspeech-3.3M-2024-01-01/test_wavs/
+
 # Environment
 .env
 

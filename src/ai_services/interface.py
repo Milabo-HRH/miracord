@@ -7,9 +7,23 @@ through a common set of methods.
 """
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import Any, Dict, Tuple, Callable, Awaitable
 from src.audio.playback import AudioPlaybackManager
 from src.exceptions import ValidationError
+
+
+@dataclass(frozen=True)
+class ProviderCapabilities:
+    """Provider features used by provider-agnostic conversation routing."""
+
+    native_web_search: bool = False
+    native_social_search: bool = False
+    manual_commit: bool = True
+    cancel_response: bool = False
+    image_input: bool = False
+    realtime_audio_input: bool = False
+    server_vad: bool = False
 
 
 class IRealtimeAIServiceManager(ABC):
@@ -86,6 +100,15 @@ class IRealtimeAIServiceManager(ABC):
             A tuple containing (frame_rate: int, channels: int).
         """
         return self._response_audio_format
+
+    @property
+    def capabilities(self) -> ProviderCapabilities:
+        """Return conservative defaults for legacy provider adapters."""
+        return ProviderCapabilities()
+
+    async def send_speaker_marker(self, user_id: int, display_name: str) -> bool:
+        """Optionally add lightweight speaker context before an audio turn."""
+        return True
 
     @abstractmethod
     async def connect(

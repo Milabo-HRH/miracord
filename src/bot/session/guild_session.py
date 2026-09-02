@@ -8,6 +8,7 @@ state conflicts.
 """
 
 import asyncio
+import time
 from typing import TYPE_CHECKING, Dict, Optional, Set
 
 import discord
@@ -24,6 +25,11 @@ from src.audio.processing import (
 )
 from src.audio.sinks import ManualControlSink
 from src.bot.session.ai_service_coordinator import AIServiceCoordinator
+from src.bot.session.conversation_router import (
+    GuildConversationRouter,
+    HeldTurn,
+    TurnDisposition,
+)
 from src.bot.session.interaction_handler import InteractionHandler
 from src.bot.session.session_ui_manager import SessionUIManager
 from src.bot.session.voice_connection_manager import VoiceConnectionManager
@@ -66,11 +72,38 @@ class GuildSession:
         self._action_lock = asyncio.Lock()
         self._background_tasks: Set[asyncio.Task] = set()
         self._audio_sink: Optional[AudioSink] = None
+        self._current_turn_disposition: TurnDisposition = TurnDisposition.SEND
+        self._current_turn_user_id: Optional[int] = None
+        self._current_turn_user_name: Optional[str] = None
+        self._current_turn_started_at: float = 0.0
+        self._agent_response_pending = False
+        self._response_playback_seen = False
+        self._response_pending_since = 0.0
+        self._live_input_active = False
+        self._live_input_user_id: Optional[int] = None
+        self._live_input_user_name: Optional[str] = None
+        self._live_audio_queue: asyncio.Queue[tuple[int, str, bytes]] = asyncio.Queue(
+            maxsize=500
+        )
+        self._live_audio_buffer = bytearray()
+        self._live_send_lock = asyncio.Lock()
 
         # Cached audio processor instance for efficient reuse
         self._audio_processor = UnifiedAudioProcessor()
 
         self.bot_state = BotState()
+        self.conversation_router = GuildConversationRouter(
+            active_participant_policy=Config.ACTIVE_PARTICIPANT_SPEECH_POLICY,
+            new_participant_policy=Config.NEW_PARTICIPANT_WAKE_POLICY,
+            idle_timeout_seconds=Config.CONVERSATION_IDLE_TIMEOUT_SECONDS,
+            held_turn_max_seconds=Config.HELD_TURN_MAX_SECONDS,
+            held_turn_queue_max=Config.HELD_TURN_QUEUE_MAX,
+            source_bytes_per_second=(
+                Config.DISCORD_AUDIO_FRAME_RATE
+                * Config.DISCORD_AUDIO_CHANNELS
+                * Config.SAMPLE_WIDTH
+            ),
+        )
         self.ui_manager = SessionUIManager(self.guild, self.bot_state)
         self.audio_playback_manager = AudioPlaybackManager(self.guild)
         self.voice_connection = VoiceConnectionManager(
@@ -93,6 +126,12 @@ class GuildSession:
     async def start_background_tasks(self) -> None:
         """Starts all persistent background tasks for the session."""
         self.ui_manager.start()
+        monitor_task = asyncio.create_task(self._conversation_monitor_loop())
+        self._background_tasks.add(monitor_task)
+        monitor_task.add_done_callback(self._background_tasks.discard)
+        live_stream_task = asyncio.create_task(self._live_audio_stream_loop())
+        self._background_tasks.add(live_stream_task)
+        live_stream_task.add_done_callback(self._background_tasks.discard)
         logger.info(f"Background tasks started for guild {self.guild.id}.")
 
     async def cleanup(self) -> None:
@@ -100,6 +139,7 @@ class GuildSession:
         Gracefully shuts down the session, ensuring each cleanup step is attempted.
         """
         logger.info(f"Cleaning up session for guild {self.guild.id}")
+        self._live_input_active = False
 
         # Cancel all background tasks managed by this session
         for task in self._background_tasks:
@@ -133,6 +173,7 @@ class GuildSession:
             )
 
         await self.bot_state.reset_to_idle()
+        self.conversation_router.release_participants()
         logger.info(f"Session for guild {self.guild.id} cleaned up successfully.")
 
     async def handle_reaction_add(
@@ -199,8 +240,32 @@ class GuildSession:
             else:
                 logger.info(f"User {user.id} revoked consent.")
                 await self.bot_state.revoke_consent(user.id)
+                self.conversation_router.remove_participant(user.id)
                 if self._audio_sink:
                     self._audio_sink.remove_user(user.id)
+            self.ui_manager.schedule_update()
+
+    async def handle_voice_member_access(
+        self, member: discord.Member, joined: bool
+    ) -> None:
+        """Keep implicit wake-word access in sync with voice membership."""
+        if Config.VOICE_ACCESS_MODE != "implicit" or member.bot:
+            return
+        async with self._action_lock:
+            if joined:
+                logger.info("Implicitly enabling voice access for user %s.", member.id)
+                await self.bot_state.grant_consent(member.id)
+                if isinstance(self._audio_sink, ManualControlSink):
+                    loop = asyncio.get_running_loop()
+                    await loop.run_in_executor(
+                        None, self._audio_sink.add_user, member.id
+                    )
+            else:
+                logger.info("Removing implicit voice access for user %s.", member.id)
+                await self.bot_state.revoke_consent(member.id)
+                self.conversation_router.remove_participant(member.id)
+                if self._audio_sink:
+                    self._audio_sink.remove_user(member.id)
             self.ui_manager.schedule_update()
 
     async def _interrupt_ongoing_playback(self) -> None:
@@ -217,6 +282,9 @@ class GuildSession:
             logger.warning(
                 f"Failed to cancel ongoing AI response for guild {self.guild.id}"
             )
+        self._agent_response_pending = False
+        self._response_playback_seen = False
+        self._response_pending_since = 0.0
 
     async def handle_pushtotalk_reaction(self, user: discord.User, added: bool) -> None:
         async with self._action_lock:
@@ -227,7 +295,18 @@ class GuildSession:
                 # This transition is immediate, no cues.
                 if isinstance(self._audio_sink, ManualControlSink):
                     self._audio_sink.enable_vad(False)
+                # Pressing the PTT control is an explicit local admission into
+                # the shared guild session. Open the same upload gate that a
+                # positive wake-word detection opens before recording starts.
+                await self.bot_state.add_active_participant(user.id)
                 await self.bot_state.start_recording(user, RecordingMethod.PushToTalk)
+                self._set_current_turn_context(user, TurnDisposition.SEND)
+                live_input = await self._begin_live_audio_input(user)
+                if live_input and isinstance(self._audio_sink, ManualControlSink):
+                    self._audio_sink.enable_vad(
+                        True,
+                        silence_timeout_ms=Config.LIVE_INPUT_SILENCE_TIMEOUT_MS,
+                    )
                 # SESSION ID SYNC: Update sink session ID after new recording starts
                 if isinstance(self._audio_sink, ManualControlSink):
                     self._audio_sink.update_session_id()
@@ -241,7 +320,12 @@ class GuildSession:
                     sink: "ManualControlSink" = self._audio_sink  # type: ignore
                     try:
                         audio_data = sink.stop_and_get_audio()
-                        self._handle_finished_recording(audio_data)
+                        if self._live_input_active:
+                            await self._finish_live_audio_input(
+                                finalize=True, flush=True
+                            )
+                        else:
+                            self._handle_finished_recording(audio_data)
                     except SessionConsistencyError as e:
                         logger.warning(
                             f"Recording interrupted due to session inconsistency: {e}"
@@ -257,28 +341,249 @@ class GuildSession:
         async with self._action_lock:
             if self.bot_state.current_state != BotStateEnum.STANDBY:
                 return
+            started = await self._begin_routed_recording(
+                user, via_wake_word=True, method=RecordingMethod.WakeWord
+            )
+            # A cue is useful for the buffered/local-VAD fallback, but it would
+            # look like provider playback to the live-stream monitor and close
+            # the just-opened server-VAD turn. Live input therefore starts
+            # immediately and silently after the wake word.
+            if started and not self._live_input_active:
+                await self.audio_playback_manager.play_cue("start_recording")
 
-            # Interrupt any ongoing playback before starting recording
+    async def on_active_speech_detected(self, user: discord.User) -> None:
+        """Let an admitted participant speak again without repeating the wake word."""
+        async with self._action_lock:
+            if self.bot_state.current_state != BotStateEnum.STANDBY:
+                return
+            await self._begin_routed_recording(
+                user, via_wake_word=False, method=RecordingMethod.Conversation
+            )
+
+    def _is_agent_speaking(self) -> bool:
+        return bool(
+            self._agent_response_pending
+            or self.audio_playback_manager.get_current_playing_response_id()
+        )
+
+    def _set_current_turn_context(
+        self, user: discord.User, disposition: TurnDisposition
+    ) -> None:
+        self._current_turn_disposition = disposition
+        self._current_turn_user_id = user.id
+        self._current_turn_user_name = user.name
+        self._current_turn_started_at = time.monotonic()
+
+    async def _begin_live_audio_input(self, user: discord.User) -> bool:
+        """Open a realtime provider stream for one admitted speaker."""
+        if not self.ai_coordinator.supports_server_vad_streaming():
+            return False
+        self._live_input_active = True
+        self._live_input_user_id = user.id
+        self._live_input_user_name = user.name
+        self._live_audio_buffer.clear()
+        while True:
+            try:
+                self._live_audio_queue.get_nowait()
+                self._live_audio_queue.task_done()
+            except asyncio.QueueEmpty:
+                break
+        self._audio_processor.reset_state(
+            f"live_input_{self.bot_state.current_session_id}"
+        )
+        logger.info(
+            "Started server-VAD realtime audio input for user %s in guild %s.",
+            user.id,
+            self.guild.id,
+        )
+        return True
+
+    async def on_recording_audio_chunk(
+        self, user: discord.User, discord_pcm: bytes
+    ) -> None:
+        """Convert a Discord frame and enqueue it for realtime provider upload."""
+        if not self._live_input_active or user.id != self._live_input_user_id:
+            return
+        target = self.ai_coordinator.get_processing_audio_format()
+        if not target:
+            return
+        processed = self._audio_processor.convert_sync(
+            DISCORD_FORMAT,
+            AudioFormat(target[0], target[1], Config.SAMPLE_WIDTH),
+            discord_pcm,
+            strategy=ProcessingStrategy.REALTIME,
+            state_key=f"live_input_{self.bot_state.current_session_id}",
+        )
+        try:
+            self._live_audio_queue.put_nowait((user.id, user.name, processed))
+        except asyncio.QueueFull:
+            logger.warning(
+                "Dropping realtime audio frame for guild %s because its queue is full.",
+                self.guild.id,
+            )
+
+    async def _send_live_provider_chunk(
+        self, user_id: int, display_name: str, pcm: bytes
+    ) -> bool:
+        async with self._live_send_lock:
+            return await self.ai_coordinator.send_audio_stream_chunk(
+                pcm, user_id=user_id, display_name=display_name
+            )
+
+    async def _live_audio_stream_loop(self) -> None:
+        """Pace 100 ms PCM chunks and silence into the provider's server VAD."""
+        target = self.ai_coordinator.get_processing_audio_format() or (16000, 1)
+        provider_chunk_bytes = target[0] * target[1] * Config.SAMPLE_WIDTH // 10
+        try:
+            while True:
+                item: Optional[tuple[int, str, bytes]] = None
+                try:
+                    item = await asyncio.wait_for(
+                        self._live_audio_queue.get(), timeout=0.1
+                    )
+                except asyncio.TimeoutError:
+                    pass
+
+                if item is not None:
+                    user_id, _display_name, pcm = item
+                    self._live_audio_queue.task_done()
+                    if self._live_input_active and user_id == self._live_input_user_id:
+                        self._live_audio_buffer.extend(pcm)
+                elif self._live_input_active:
+                    # Discord stops emitting RTP during silence. Send actual
+                    # zero PCM so Gemini's server VAD can observe speech end.
+                    self._live_audio_buffer.extend(b"\x00" * provider_chunk_bytes)
+
+                while (
+                    self._live_input_active
+                    and len(self._live_audio_buffer) >= provider_chunk_bytes
+                ):
+                    chunk = bytes(self._live_audio_buffer[:provider_chunk_bytes])
+                    del self._live_audio_buffer[:provider_chunk_bytes]
+                    if not await self._send_live_provider_chunk(
+                        self._live_input_user_id or 0,
+                        self._live_input_user_name or "unknown",
+                        chunk,
+                    ):
+                        logger.error(
+                            "Realtime audio upload failed for guild %s.", self.guild.id
+                        )
+                        self._live_input_active = False
+                        break
+        except asyncio.CancelledError:
+            return
+
+    async def _finish_live_audio_input(self, *, finalize: bool, flush: bool) -> bool:
+        """Close local streaming state, optionally flushing and committing it."""
+        if not self._live_input_active:
+            return False
+        user_id = self._live_input_user_id or 0
+        display_name = self._live_input_user_name or "unknown"
+        self._live_input_active = False
+        audio_sink = getattr(self, "_audio_sink", None)
+        if isinstance(audio_sink, ManualControlSink):
+            audio_sink.enable_vad(False)
+
+        while True:
+            try:
+                queued_user_id, queued_name, pcm = self._live_audio_queue.get_nowait()
+                self._live_audio_queue.task_done()
+                if queued_user_id == user_id:
+                    display_name = queued_name
+                    self._live_audio_buffer.extend(pcm)
+            except asyncio.QueueEmpty:
+                break
+
+        if flush and self._live_audio_buffer:
+            target = self.ai_coordinator.get_processing_audio_format() or (16000, 1)
+            provider_chunk_bytes = target[0] * target[1] * Config.SAMPLE_WIDTH // 10
+            remainder = bytes(self._live_audio_buffer)
+            if len(remainder) % provider_chunk_bytes:
+                remainder += b"\x00" * (
+                    provider_chunk_bytes - len(remainder) % provider_chunk_bytes
+                )
+            for offset in range(0, len(remainder), provider_chunk_bytes):
+                if not await self._send_live_provider_chunk(
+                    user_id,
+                    display_name,
+                    remainder[offset : offset + provider_chunk_bytes],
+                ):
+                    break
+        self._live_audio_buffer.clear()
+
+        completed = True
+        if finalize:
+            completed = await self.ai_coordinator.finalize_audio_stream()
+            if completed:
+                self._agent_response_pending = True
+                self._response_playback_seen = False
+                self._response_pending_since = time.monotonic()
+        self._live_input_user_id = None
+        self._live_input_user_name = None
+        self._audio_processor.reset_state(
+            f"live_input_{self.bot_state.current_session_id}"
+        )
+        return completed
+
+    async def _begin_routed_recording(
+        self,
+        user: discord.User,
+        *,
+        via_wake_word: bool,
+        method: RecordingMethod,
+    ) -> bool:
+        disposition = self.conversation_router.route_speech(
+            user.id,
+            via_wake_word=via_wake_word,
+            agent_speaking=self._is_agent_speaking(),
+        )
+        if disposition == TurnDisposition.IGNORE:
+            return False
+
+        await self.bot_state.add_active_participant(user.id)
+        if disposition == TurnDisposition.BARGE_IN:
             await self._interrupt_ongoing_playback()
 
-            # Enable VAD for the upcoming recording session.
-            if isinstance(self._audio_sink, ManualControlSink):
-                self._audio_sink.enable_vad(True)
-
-            # Immediately transition to RECORDING state to capture all audio.
-            await self.bot_state.start_recording(user, RecordingMethod.WakeWord)
-            # SESSION ID SYNC: Update sink session ID after new recording starts
-            if isinstance(self._audio_sink, ManualControlSink):
-                self._audio_sink.update_session_id()
-
-            # Play the cue to signal to the user that recording has started
-            await self.audio_playback_manager.play_cue("start_recording")
+        self._set_current_turn_context(user, disposition)
+        await self.bot_state.start_recording(user, method)
+        live_input = await self._begin_live_audio_input(user)
+        if isinstance(self._audio_sink, ManualControlSink):
+            self._audio_sink.enable_vad(
+                True,
+                silence_timeout_ms=(
+                    Config.LIVE_INPUT_SILENCE_TIMEOUT_MS if live_input else None
+                ),
+            )
+            self._audio_sink.update_session_id()
+        return True
 
     async def on_vad_speech_end(self, audio_data: bytes) -> None:
         async with self._action_lock:
             if (
+                self.bot_state.current_state == BotStateEnum.RECORDING
+                and self._live_input_active
+            ):
+                logger.info(
+                    "Local VAD safety timeout closed realtime input after %d ms "
+                    "of silence for guild %s.",
+                    Config.LIVE_INPUT_SILENCE_TIMEOUT_MS,
+                    self.guild.id,
+                )
+                await self._finish_live_audio_input(finalize=True, flush=True)
+                await self.bot_state.stop_recording()
+                # The 10-second safety timeout is also the end of the shared
+                # admission window. Do not leave a previously admitted speaker
+                # able to reopen the upload gate merely because a desktop Voice
+                # response is still pending. A later utterance must wake the bot
+                # again; barge-in remains available during the active window.
+                self.conversation_router.release_participants()
+                await self.bot_state.clear_active_participants()
+                return
+
+            if (
                 self.bot_state.current_state != BotStateEnum.RECORDING
-                or self.bot_state.recording_method != RecordingMethod.WakeWord
+                or self.bot_state.recording_method
+                not in {RecordingMethod.WakeWord, RecordingMethod.Conversation}
             ):
                 return
 
@@ -298,12 +603,37 @@ class GuildSession:
         push-to-talk and wake word triggered recordings.
         """
         if audio_data:
+            if self._current_turn_disposition == TurnDisposition.HOLD:
+                if self._current_turn_user_id is None:
+                    logger.warning("Dropping held turn without a routed user.")
+                    return
+                self.conversation_router.enqueue_held_turn(
+                    HeldTurn(
+                        user_id=self._current_turn_user_id,
+                        display_name=self._current_turn_user_name
+                        or str(self._current_turn_user_id),
+                        audio_data=audio_data,
+                        speech_started_at=self._current_turn_started_at,
+                    )
+                )
+                return
             logger.info(f"Creating audio processing task for {len(audio_data)} bytes.")
-            task = asyncio.create_task(self._process_manual_audio_task(audio_data))
+            task = asyncio.create_task(
+                self._process_manual_audio_task(
+                    audio_data,
+                    user_id=self._current_turn_user_id,
+                    display_name=self._current_turn_user_name,
+                )
+            )
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
-    async def _process_manual_audio_task(self, audio_data: bytes) -> None:
+    async def _process_manual_audio_task(
+        self,
+        audio_data: bytes,
+        user_id: Optional[int] = None,
+        display_name: Optional[str] = None,
+    ) -> None:
         """Task to process a finished audio recording."""
         # Cross-session corruption fix: Capture session ID at start of processing
         session_id = self.bot_state.current_session_id
@@ -332,8 +662,15 @@ class GuildSession:
                 strategy=ProcessingStrategy.QUALITY,
             )
 
-            if not await self.ai_coordinator.send_audio_turn(processed_audio):
+            if not await self.ai_coordinator.send_audio_turn(
+                processed_audio, user_id=user_id, display_name=display_name
+            ):
                 await self._safe_enter_error_state(session_id)
+            else:
+                self._agent_response_pending = True
+                self._response_playback_seen = False
+                self._response_pending_since = time.monotonic()
+                self.conversation_router.touch()
         except asyncio.CancelledError:
             logger.info(
                 f"Manual audio processing task cancelled for guild {self.guild.id}."
@@ -379,9 +716,88 @@ class GuildSession:
             on_wake_word_detected=self.on_wake_word_detected,
             on_vad_speech_end=self.on_vad_speech_end,
             action_lock=self._action_lock,
+            on_active_speech_detected=self.on_active_speech_detected,
+            on_recording_audio_chunk=self.on_recording_audio_chunk,
         )
         self.voice_connection.start_listening(self._audio_sink)
         logger.info("Initialized ManualControlSink for voice processing")
+
+    async def _conversation_monitor_loop(self) -> None:
+        """Drain held turns and release the upload gate after 10s silence."""
+        try:
+            while True:
+                await asyncio.sleep(0.1)
+                playing = bool(
+                    self.audio_playback_manager.get_current_playing_response_id()
+                )
+                if playing:
+                    if self._live_input_active:
+                        async with self._action_lock:
+                            if self._live_input_active:
+                                if isinstance(self._audio_sink, ManualControlSink):
+                                    try:
+                                        self._audio_sink.stop_and_get_audio()
+                                    except SessionConsistencyError:
+                                        pass
+                                await self._finish_live_audio_input(
+                                    finalize=False, flush=False
+                                )
+                                if (
+                                    self.bot_state.current_state
+                                    == BotStateEnum.RECORDING
+                                ):
+                                    await self.bot_state.stop_recording()
+                                self._agent_response_pending = True
+                    self._response_playback_seen = True
+                    self.conversation_router.touch()
+                elif self._agent_response_pending and self._response_playback_seen:
+                    self._agent_response_pending = False
+                    self._response_playback_seen = False
+                    self._response_pending_since = 0.0
+                    self.conversation_router.touch()
+                elif (
+                    self._agent_response_pending
+                    and self._response_pending_since
+                    and time.monotonic() - self._response_pending_since > 30.0
+                ):
+                    logger.warning(
+                        "Provider response for guild %s produced no observable playback "
+                        "within 30 seconds; releasing the pending gate.",
+                        self.guild.id,
+                    )
+                    self._agent_response_pending = False
+                    self._response_pending_since = 0.0
+
+                busy = bool(
+                    playing
+                    or self._agent_response_pending
+                    or self.bot_state.current_state == BotStateEnum.RECORDING
+                )
+
+                if not busy and self.conversation_router.has_held_turns:
+                    turn = self.conversation_router.pop_held_turn()
+                    if turn:
+                        task = asyncio.create_task(
+                            self._process_manual_audio_task(
+                                turn.audio_data,
+                                user_id=turn.user_id,
+                                display_name=turn.display_name,
+                            )
+                        )
+                        self._background_tasks.add(task)
+                        task.add_done_callback(self._background_tasks.discard)
+                        continue
+
+                if self.conversation_router.release_if_idle(busy=busy):
+                    await self.bot_state.clear_active_participants()
+                    logger.info(
+                        "Shared conversation for guild %s ended after %.1fs silence; "
+                        "provider connection remains warm.",
+                        self.guild.id,
+                        Config.CONVERSATION_IDLE_TIMEOUT_SECONDS,
+                    )
+        except asyncio.CancelledError:
+            return
 
     async def initialize_session(self, ctx: commands.Context) -> bool:
         """
@@ -401,6 +817,11 @@ class GuildSession:
             await ctx.send("Failed to connect to the voice channel.")
             await self.bot_state.enter_connection_error_state()
             return False
+
+        if Config.VOICE_ACCESS_MODE == "implicit":
+            for member in voice_channel.members:
+                if not member.bot:
+                    await self.bot_state.grant_consent(member.id)
 
         if not await self.ui_manager.create(ctx.channel):
             await self.bot_state.reset_to_idle()

@@ -11,6 +11,7 @@ This module provides the VoiceConnectionManager class which handles:
 import discord
 from discord.ext import voice_recv
 
+from src.audio.discord_voice_recv_compat import install_dave_voice_receive_compat
 from src.audio.playback import AudioPlaybackManager
 from src.audio.sinks import AudioSink
 from src.utils.logger import get_logger
@@ -71,6 +72,7 @@ class VoiceConnectionManager:
                     logger.info(f"Moved to voice channel: {voice_channel.name}")
             else:
                 # Let discord.py handle the state. It will set guild.voice_client.
+                install_dave_voice_receive_compat()
                 await voice_channel.connect(cls=voice_recv.VoiceRecvClient)
                 logger.info(f"Connected to voice channel: {voice_channel.name}")
 

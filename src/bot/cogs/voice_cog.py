@@ -15,6 +15,8 @@ import discord
 from discord.ext import commands
 
 from src.bot.session.guild_session import GuildSession
+from src.bot.state import BotStateEnum
+from src.config.config import Config
 from src.exceptions import SessionError, StateTransitionError
 from src.utils.logger import get_logger
 
@@ -50,6 +52,16 @@ class VoiceCog(commands.Cog):
         self._session_locks: Dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         logger.info("VoiceCog initialized.")
 
+    @staticmethod
+    async def _edit_command_status(
+        message: discord.Message, content: str
+    ) -> None:
+        """Show the actual connection state instead of Discord's thinking label."""
+        try:
+            await message.edit(content=content)
+        except discord.DiscordException:
+            logger.warning("Could not update command status message.", exc_info=True)
+
     def _get_or_create_session(self, guild: discord.Guild) -> GuildSession:
         """
         Retrieves an existing session for a guild or creates a new one.
@@ -80,7 +92,7 @@ class VoiceCog(commands.Cog):
         self._sessions.clear()
         logger.info("All active sessions cleaned up.")
 
-    async def _handle_connect_command(self, ctx: commands.Context) -> None:
+    async def _handle_connect_command(self, ctx: commands.Context) -> bool:
         """
         Handles the logic for connecting the bot to a voice channel.
 
@@ -92,7 +104,7 @@ class VoiceCog(commands.Cog):
                 await ctx.send(
                     "I'm already in a session in this server. Use `/disconnect` to end it first."
                 )
-                return
+                return True
 
             session = self._get_or_create_session(ctx.guild)
             try:
@@ -103,6 +115,7 @@ class VoiceCog(commands.Cog):
                     )
                     if ctx.guild.id in self._sessions:
                         del self._sessions[ctx.guild.id]
+                return success
             except StateTransitionError as e:
                 logger.critical(
                     f"Caught unrecoverable state error in guild {ctx.guild.id} during connect: {e}",
@@ -114,6 +127,7 @@ class VoiceCog(commands.Cog):
                 await session.cleanup()
                 if ctx.guild.id in self._sessions:
                     del self._sessions[ctx.guild.id]
+                return False
 
     @commands.Cog.listener()
     async def on_voice_state_update(
@@ -129,7 +143,7 @@ class VoiceCog(commands.Cog):
         connected to a voice channel, ignoring state changes like mute or deafen.
         It then delegates the event to the appropriate GuildSession.
         """
-        if member.id != self.bot.user.id or not member.guild:
+        if not member.guild:
             return
 
         if before.channel == after.channel:
@@ -139,8 +153,21 @@ class VoiceCog(commands.Cog):
         if not session:
             return
 
-        is_connected = after.channel is not None
-        await session.handle_voice_connection_update(is_connected)
+        if member.id == self.bot.user.id:
+            is_connected = after.channel is not None
+            await session.handle_voice_connection_update(is_connected)
+            return
+
+        if Config.VOICE_ACCESS_MODE != "implicit" or member.bot:
+            return
+        voice_client = member.guild.voice_client
+        bot_channel = voice_client.channel if voice_client else None
+        if bot_channel is None:
+            return
+        if after.channel == bot_channel:
+            await session.handle_voice_member_access(member, joined=True)
+        elif before.channel == bot_channel:
+            await session.handle_voice_member_access(member, joined=False)
 
     @commands.Cog.listener()
     async def on_reaction_add(
@@ -198,7 +225,7 @@ class VoiceCog(commands.Cog):
                 if reaction.message.guild.id in self._sessions:
                     del self._sessions[reaction.message.guild.id]
 
-    @commands.command(name="connect")
+    @commands.hybrid_command(name="connect")
     @commands.guild_only()
     async def connect_command(self, ctx: commands.Context) -> None:
         """
@@ -210,9 +237,22 @@ class VoiceCog(commands.Cog):
         Args:
             ctx: The command context.
         """
-        await self._handle_connect_command(ctx)
+        if ctx.guild.id in self._sessions:
+            await ctx.send("✅ The bot is already connected in this server.")
+            return
+        if ctx.author.voice is None:
+            await ctx.send("Join a voice channel before using `/connect`.")
+            return
+        status = await ctx.send("🔌 Connecting to Discord voice and the AI provider…")
+        success = await self._handle_connect_command(ctx)
+        if success:
+            await self._edit_command_status(
+                status, f"✅ Connected to **{ctx.author.voice.channel.name}**."
+            )
+        else:
+            await self._edit_command_status(status, "❌ Connection failed.")
 
-    @commands.command(name="set")
+    @commands.hybrid_command(name="set")
     @commands.guild_only()
     async def set_provider_command(
         self, ctx: commands.Context, provider_name: str
@@ -234,8 +274,12 @@ class VoiceCog(commands.Cog):
             )
             return
 
+        status = await ctx.send(f"🔄 Switching provider to **{provider_name.upper()}**…")
         try:
             await session.set_provider(ctx, provider_name)
+            await self._edit_command_status(
+                status, f"✅ Provider switch finished: **{provider_name.upper()}**."
+            )
         except StateTransitionError as e:
             logger.critical(
                 f"Caught unrecoverable state error in guild {ctx.guild.id} during set provider: {e}",
@@ -247,8 +291,38 @@ class VoiceCog(commands.Cog):
             await session.cleanup()
             if ctx.guild.id in self._sessions:
                 del self._sessions[ctx.guild.id]
+            await self._edit_command_status(status, "❌ Provider switch failed.")
 
-    @commands.command(name="disconnect")
+    @commands.hybrid_command(name="talk")
+    @commands.guild_only()
+    async def talk_command(self, ctx: commands.Context) -> None:
+        """Toggle deterministic voice recording for the invoking user."""
+        session = self._sessions.get(ctx.guild.id)
+        if not session:
+            await ctx.send("Use `/connect` before `/talk`.")
+            return
+
+        state = session.bot_state.current_state
+        if state == BotStateEnum.STANDBY:
+            await session.handle_pushtotalk_reaction(ctx.author, added=True)
+            await ctx.send(
+                "🔴 Live input started. Speak naturally and stop; "
+                "server VAD will answer automatically. Run `/talk` again only "
+                "to force-submit."
+            )
+            return
+
+        if (
+            state == BotStateEnum.RECORDING
+            and session.bot_state.is_authorized(ctx.author)
+        ):
+            await session.handle_pushtotalk_reaction(ctx.author, added=False)
+            await ctx.send("✅ Submitted to the voice assistant.")
+            return
+
+        await ctx.send("Another voice turn is currently active.")
+
+    @commands.hybrid_command(name="disconnect")
     @commands.guild_only()
     async def disconnect_command(self, ctx: commands.Context) -> None:
         """
@@ -268,8 +342,11 @@ class VoiceCog(commands.Cog):
                 await ctx.send("The bot is not currently in a session in this server.")
                 return
 
+            status = await ctx.send("🔌 Disconnecting from the voice channel…")
+            disconnected = False
             try:
                 await session.cleanup()
+                disconnected = True
             except StateTransitionError as e:
                 logger.critical(
                     f"Caught unrecoverable state error in guild {ctx.guild.id} during disconnect: {e}",
@@ -296,6 +373,10 @@ class VoiceCog(commands.Cog):
                     del self._sessions[ctx.guild.id]
                 logger.info(
                     f"Session for guild {ctx.guild.id} has been fully cleaned up and removed."
+                )
+                await self._edit_command_status(
+                    status,
+                    "✅ Disconnected." if disconnected else "❌ Disconnect failed.",
                 )
 
 

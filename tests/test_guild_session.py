@@ -16,6 +16,81 @@ from src.bot.session.guild_session import GuildSession
 from src.bot.state import BotStateEnum, RecordingMethod
 
 
+class TestGuildSessionLiveAudioStreaming:
+    """Verify microphone pacing and explicit stream finalization."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("provider_format", "chunk_bytes"),
+        [((16000, 1), 3200), ((48000, 2), 19200)],
+    )
+    async def test_stream_loop_sends_audio_then_silence_for_server_vad(
+        self, provider_format, chunk_bytes
+    ):
+        session = GuildSession.__new__(GuildSession)
+        session._live_audio_queue = asyncio.Queue(maxsize=10)
+        session._live_audio_buffer = bytearray()
+        session._live_input_active = True
+        session._live_input_user_id = 42
+        session._live_input_user_name = "Alice"
+        session.guild = MagicMock(id=123)
+        session.ai_coordinator = MagicMock()
+        session.ai_coordinator.get_processing_audio_format.return_value = (
+            provider_format
+        )
+
+        two_chunks_sent = asyncio.Event()
+
+        async def send_chunk(*_args):
+            if session._send_live_provider_chunk.await_count >= 2:
+                two_chunks_sent.set()
+            return True
+
+        session._send_live_provider_chunk = AsyncMock(side_effect=send_chunk)
+        await session._live_audio_queue.put((42, "Alice", b"\x01" * chunk_bytes))
+
+        task = asyncio.create_task(session._live_audio_stream_loop())
+        try:
+            await asyncio.wait_for(two_chunks_sent.wait(), timeout=1)
+        finally:
+            task.cancel()
+            await task
+
+        first = session._send_live_provider_chunk.await_args_list[0].args
+        second = session._send_live_provider_chunk.await_args_list[1].args
+        assert first == (42, "Alice", b"\x01" * chunk_bytes)
+        assert second == (42, "Alice", b"\x00" * chunk_bytes)
+
+    @pytest.mark.asyncio
+    async def test_force_finish_flushes_and_finalizes_live_stream(self):
+        session = GuildSession.__new__(GuildSession)
+        session._live_input_active = True
+        session._live_input_user_id = 42
+        session._live_input_user_name = "Alice"
+        session._live_audio_queue = asyncio.Queue(maxsize=10)
+        session._live_audio_buffer = bytearray(b"\x01" * 100)
+        session._send_live_provider_chunk = AsyncMock(return_value=True)
+        session.ai_coordinator = MagicMock()
+        session.ai_coordinator.get_processing_audio_format.return_value = (16000, 1)
+        session.ai_coordinator.finalize_audio_stream = AsyncMock(return_value=True)
+        session._audio_processor = MagicMock()
+        session.bot_state = MagicMock(current_session_id=7)
+        session._agent_response_pending = False
+        session._response_playback_seen = True
+        session._response_pending_since = 0.0
+
+        assert await session._finish_live_audio_input(finalize=True, flush=True)
+
+        sent = session._send_live_provider_chunk.await_args.args
+        assert sent[:2] == (42, "Alice")
+        assert sent[2][:100] == b"\x01" * 100
+        assert sent[2][100:] == b"\x00" * 3100
+        session.ai_coordinator.finalize_audio_stream.assert_awaited_once()
+        assert session._agent_response_pending is True
+        assert session._response_playback_seen is False
+        assert session._live_input_active is False
+
+
 class TestGuildSessionInitialization:
     """Test GuildSession initialization and basic functionality."""
 
@@ -385,6 +460,40 @@ class TestGuildSessionUserInteractions:
         mock_audio_sink.remove_user.assert_called_once_with(user.id)
         session.ui_manager.schedule_update.assert_called_once()
 
+    @pytest.mark.asyncio
+    @patch("src.bot.session.guild_session.Config.VOICE_ACCESS_MODE", "implicit")
+    async def test_implicit_member_join_grants_voice_access(
+        self, guild_session_with_mocks
+    ):
+        session = guild_session_with_mocks
+        member = MagicMock(spec=discord.Member)
+        member.id = 789
+        member.bot = False
+        session._audio_sink = None
+
+        await session.handle_voice_member_access(member, joined=True)
+
+        session.bot_state.grant_consent.assert_awaited_once_with(member.id)
+        session.ui_manager.schedule_update.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("src.bot.session.guild_session.Config.VOICE_ACCESS_MODE", "implicit")
+    async def test_implicit_member_leave_revokes_voice_access(
+        self, guild_session_with_mocks
+    ):
+        session = guild_session_with_mocks
+        member = MagicMock(spec=discord.Member)
+        member.id = 789
+        member.bot = False
+        mock_audio_sink = MagicMock()
+        session._audio_sink = mock_audio_sink
+
+        await session.handle_voice_member_access(member, joined=False)
+
+        session.bot_state.revoke_consent.assert_awaited_once_with(member.id)
+        mock_audio_sink.remove_user.assert_called_once_with(member.id)
+        session.ui_manager.schedule_update.assert_called_once()
+
 
 class TestGuildSessionPushToTalkInteractions:
     """Test push-to-talk interaction handling."""
@@ -439,6 +548,22 @@ class TestGuildSessionPushToTalkInteractions:
         mock_audio_sink.stop_and_get_audio.assert_called_once()
         session._handle_finished_recording.assert_called_once_with(b"audio_data")
         session.bot_state.stop_recording.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_pushtotalk_opens_upload_gate(self, guild_session_with_mocks):
+        session = guild_session_with_mocks
+        user = MagicMock(spec=discord.User)
+        user.id = 456
+        session.bot_state.current_state = BotStateEnum.STANDBY
+        session.ai_coordinator.cancel_ongoing_response.return_value = True
+        session._audio_sink = MagicMock()
+
+        await session.handle_pushtotalk_reaction(user, added=True)
+
+        session.bot_state.add_active_participant.assert_awaited_once_with(456)
+        session.bot_state.start_recording.assert_awaited_once_with(
+            user, RecordingMethod.PushToTalk
+        )
 
     @pytest.mark.asyncio
     async def test_interrupt_ongoing_playback(self, guild_session_with_mocks):
@@ -505,6 +630,34 @@ class TestGuildSessionWakeWordInteractions:
         session.bot_state.start_recording.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_live_wake_word_does_not_play_conflicting_start_cue(
+        self, guild_session_with_mocks
+    ):
+        session = guild_session_with_mocks
+        user = MagicMock(spec=discord.User)
+        session.bot_state.current_state = BotStateEnum.STANDBY
+        session._begin_routed_recording = AsyncMock(return_value=True)
+        session._live_input_active = True
+
+        await session.on_wake_word_detected(user)
+
+        session.audio_playback_manager.play_cue.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_buffered_wake_word_keeps_start_cue(self, guild_session_with_mocks):
+        session = guild_session_with_mocks
+        user = MagicMock(spec=discord.User)
+        session.bot_state.current_state = BotStateEnum.STANDBY
+        session._begin_routed_recording = AsyncMock(return_value=True)
+        session._live_input_active = False
+
+        await session.on_wake_word_detected(user)
+
+        session.audio_playback_manager.play_cue.assert_awaited_once_with(
+            "start_recording"
+        )
+
+    @pytest.mark.asyncio
     async def test_on_vad_speech_end_valid_conditions(self, guild_session_with_mocks):
         """Test VAD speech end with valid conditions."""
         session = guild_session_with_mocks
@@ -521,6 +674,28 @@ class TestGuildSessionWakeWordInteractions:
 
         session._handle_finished_recording.assert_called_once_with(audio_data)
         session.bot_state.stop_recording.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_local_vad_safety_timeout_finalizes_live_turn(
+        self, guild_session_with_mocks
+    ):
+        session = guild_session_with_mocks
+        session.bot_state.current_state = BotStateEnum.RECORDING
+        session.bot_state.recording_method = RecordingMethod.WakeWord
+        session._live_input_active = True
+        session._finish_live_audio_input = AsyncMock(return_value=True)
+        session._handle_finished_recording = MagicMock()
+        session.conversation_router.release_participants = MagicMock()
+
+        await session.on_vad_speech_end(b"already-streamed-audio")
+
+        session._finish_live_audio_input.assert_awaited_once_with(
+            finalize=True, flush=True
+        )
+        session.bot_state.stop_recording.assert_awaited_once()
+        session.conversation_router.release_participants.assert_called_once_with()
+        session.bot_state.clear_active_participants.assert_awaited_once_with()
+        session._handle_finished_recording.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_on_vad_speech_end_wrong_state(self, guild_session_with_mocks):

@@ -3,7 +3,6 @@ UI Manager module for handling GuildSession UI components.
 """
 
 import asyncio
-import os
 from typing import Optional
 
 import discord
@@ -58,21 +57,35 @@ class SessionUIManager:
 
         consented_users = self._get_consented_user_list()
 
-        # Dynamically get the wake word from the model filename
-        model_filename = os.path.basename(Config.WAKE_WORD_MODEL_PATH)
-        wake_word = model_filename.split("_")[0].capitalize()
+        wake_word = Config.WAKE_WORD_PHRASE
+
+        if Config.VOICE_ACCESS_MODE == "implicit":
+            wake_word_instructions = (
+                f"- **Wake Word**: Everyone in this voice channel can say "
+                f"'{wake_word}' to start live input; no reaction is required.\n"
+            )
+            access_status = f"- **Wake-word Users**: {consented_users}"
+        else:
+            wake_word_instructions = (
+                f"- **Wake Word**: After consent, say '{wake_word}' to start live input.\n"
+                f"- **Give Consent**: React with {Config.REACTION_GRANT_CONSENT} "
+                "to grant/revoke consent.\n"
+            )
+            access_status = (
+                f"- **Consented Users for Wake Word**: {consented_users}"
+            )
 
         return (
             f"**🎙️ Voice Chat Session**\n\n"
             f"---\n"
             f"### Instructions\n"
-            f"- **Push-to-Talk**: React with {Config.REACTION_TRIGGER_PTT} to start/stop recording.\n"
-            f"- **Wake Word**: Say '{wake_word}' to start recording.\n"
-            f"- **Give Consent**: React with {Config.REACTION_GRANT_CONSENT} to grant/revoke consent.\n"
+            f"- **Live Talk**: Use `/talk`, speak naturally, then stop; server VAD answers automatically.\n"
+            f"- **Reaction fallback**: React with {Config.REACTION_TRIGGER_PTT} to start/force-submit.\n"
+            f"{wake_word_instructions}"
             f"---\n"
             f"### Status\n"
             f"- **State**: `{state_info}`\n"
-            f"- **Consented Users for Wake Word**: {consented_users}"
+            f"{access_status}"
         )
 
     def get_message_content(self) -> str:
@@ -91,7 +104,7 @@ class SessionUIManager:
         shared_content = (
             f"---\n"
             f"### 🤖 AI Provider: `{self.bot_state.active_ai_provider_name.upper()}`\n"
-            f"Use `{Config.COMMAND_PREFIX}set <name>` (e.g., openai, gemini) to switch."
+            f"Use `/set <name>` (Gemini or Grok) to switch."
         )
 
         return f"{status_content}\n{shared_content}"
@@ -156,7 +169,10 @@ class SessionUIManager:
         """Creates and sends the initial standby message."""
         try:
             self.standby_message = await channel.send(self.get_message_content())
-            await self.standby_message.add_reaction(Config.REACTION_GRANT_CONSENT)
+            if Config.VOICE_ACCESS_MODE == "explicit":
+                await self.standby_message.add_reaction(
+                    Config.REACTION_GRANT_CONSENT
+                )
             await self.standby_message.add_reaction(Config.REACTION_TRIGGER_PTT)
             return True
         except discord.DiscordException as e:

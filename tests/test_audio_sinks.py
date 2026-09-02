@@ -139,6 +139,16 @@ class TestVADAnalyzer:
 
         assert vad_analyzer._frames_processed > 0
 
+    def test_initial_silence_eventually_ends_empty_turn(self, vad_analyzer):
+        frame_data = b"\x00" * vad_analyzer._frame_bytes
+        vad_analyzer._vad.is_speech.return_value = False
+
+        for _ in range(vad_analyzer._silence_frames_timeout + 1):
+            vad_analyzer.process(frame_data)
+
+        assert vad_analyzer._triggered is True
+        vad_analyzer._loop.call_soon_threadsafe.assert_called_once()
+
     def test_process_invalid_frame_size(self, vad_analyzer):
         """Test processing frame with invalid size."""
         # Invalid frame size
@@ -201,19 +211,12 @@ class TestManualControlSink:
             patch.multiple(
                 "src.audio.sinks",
                 UnifiedAudioProcessor=MagicMock(),
-                Config=MagicMock(),
                 Model=MagicMock(),
             ),
+            patch("src.audio.sinks.Config.WAKE_WORD_ENGINE", "openwakeword"),
             patch("asyncio.get_running_loop", return_value=mock_loop),
             patch("asyncio.create_task", return_value=mock_task),
         ):
-            # Mock Config values
-            from src.audio.sinks import Config as MockConfig
-
-            MockConfig.VAD_GRACE_PERIOD_MS = 200
-            MockConfig.WAKE_WORD_CHUNK_SIZE = 1280
-            MockConfig.DISCORD_CHUNK_SIZE = 3840
-
             sink = ManualControlSink(
                 bot_state=mock_bot_state,
                 initial_consented_users={123, 456},
@@ -221,7 +224,12 @@ class TestManualControlSink:
                 on_vad_speech_end=mock_callbacks["on_vad_speech_end"],
                 action_lock=mock_action_lock,
             )
-            return sink
+            # Keep the patched detector/config globals active for the complete
+            # lifetime of each test.  Returning here used to work only while
+            # openWakeWord was the process-wide default; after adding the
+            # sherpa-onnx engine, methods invoked by the test could otherwise
+            # instantiate the real Chinese model.
+            yield sink
 
     def test_initialization(self, manual_control_sink, mock_bot_state, mock_callbacks):
         """Test ManualControlSink initialization."""
@@ -304,6 +312,12 @@ class TestManualControlSink:
             assert manual_control_sink._vad_analyzer is not None
             # VAD analyzer should have been created
             mock_vad_analyzer.assert_called_once()
+
+    def test_enable_vad_accepts_realtime_safety_timeout(self, manual_control_sink):
+        with patch("src.audio.sinks.VADAnalyzer") as mock_vad_analyzer:
+            manual_control_sink.enable_vad(True, silence_timeout_ms=10000)
+
+            assert mock_vad_analyzer.call_args.kwargs["silence_timeout_ms"] == 10000
 
     def test_enable_vad_false_resets_state(self, manual_control_sink):
         """Test disabling VAD resets all VAD-related state."""
