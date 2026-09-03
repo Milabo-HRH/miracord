@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class DaveAwarePacketDecoder(voice_opus.PacketDecoder):
     """Decode transport encryption, then DAVE, then Opus."""
 
-    _voicecord_dave_aware = True
+    _miracord_dave_aware = True
 
     def _decode_packet(self, packet: Any) -> tuple[Any, bytes]:
         connection = getattr(
@@ -88,7 +88,7 @@ class DaveAwarePacketDecoder(voice_opus.PacketDecoder):
 
 def install_dave_voice_receive_compat() -> None:
     """Install the decoder adapter once for the pinned receive extension."""
-    if getattr(voice_router.PacketDecoder, "_voicecord_dave_aware", False):
+    if getattr(voice_router.PacketDecoder, "_miracord_dave_aware", False):
         return
     voice_router.PacketDecoder = DaveAwarePacketDecoder
     logger.info("Installed Discord DAVE voice-receive compatibility adapter.")

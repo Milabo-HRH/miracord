@@ -1,4 +1,4 @@
-"""Interactive, non-echoing setup for local VoiceCordAI secrets.
+"""Interactive, non-echoing setup for local MIRA.CORD secrets.
 
 Run this from a terminal instead of pasting API keys into chat or source files.
 """
@@ -33,7 +33,7 @@ def _choice(prompt: str, choices: set[str], default: str) -> str:
 
 
 def main() -> None:
-    print("VoiceCordAI local setup")
+    print("MIRA.CORD local setup")
     print("Secrets are hidden while you type and are never printed back.")
 
     provider = _choice("Realtime provider", {"gemini", "grok"}, "gemini")

@@ -1,4 +1,4 @@
-# VoiceCordAI Docker Image
+# MIRA.CORD Docker image
 # Packages Python runtime and FFmpeg in container userspace
 
 FROM python:3.13-slim
@@ -8,6 +8,7 @@ FROM python:3.13-slim
 # - Clean up apt cache to reduce image size
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
+    libportaudio2 \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory

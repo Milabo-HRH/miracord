@@ -2,7 +2,7 @@
 Unified Audio Processing Framework
 
 This module provides a comprehensive audio processing interface that consolidates
-all audio format conversion logic throughout the VoiceCordAI codebase. It supports
+all audio format conversion logic throughout the MIRA.CORD codebase. It supports
 both real-time stateful processing (using audioop) for streaming use cases and
 high-quality batch processing (using pydub) for one-shot conversions.
 

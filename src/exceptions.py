@@ -1,5 +1,5 @@
 """
-Custom exception hierarchy for VoiceCordAI application.
+Custom exception hierarchy for the MIRA.CORD application.
 
 This module defines a structured exception hierarchy to replace generic exceptions
 throughout the codebase, making error handling more precise and maintainable.
@@ -8,8 +8,8 @@ throughout the codebase, making error handling more precise and maintainable.
 from typing import Optional
 
 
-class VoiceCordAIError(Exception):
-    """Base exception for all VoiceCordAI application-specific errors."""
+class MiraCordError(Exception):
+    """Base exception for all MIRA.CORD application-specific errors."""
 
     def __init__(
         self,
@@ -28,19 +28,19 @@ class VoiceCordAIError(Exception):
         return self.message
 
 
-class ConfigurationError(VoiceCordAIError):
+class ConfigurationError(MiraCordError):
     """Raised when there are configuration-related errors."""
 
     pass
 
 
-class AudioProcessingError(VoiceCordAIError):
+class AudioProcessingError(MiraCordError):
     """Raised when audio processing operations fail."""
 
     pass
 
 
-class AIServiceError(VoiceCordAIError):
+class AIServiceError(MiraCordError):
     """Base exception for AI service-related errors."""
 
     pass
@@ -64,7 +64,7 @@ class AIModelError(AIServiceError):
     pass
 
 
-class DiscordBotError(VoiceCordAIError):
+class DiscordBotError(MiraCordError):
     """Base exception for Discord bot-related errors."""
 
     pass
@@ -88,13 +88,13 @@ class SessionConsistencyError(SessionError):
     pass
 
 
-class ValidationError(VoiceCordAIError):
+class ValidationError(MiraCordError):
     """Raised when input validation fails."""
 
     pass
 
 
-class StateTransitionError(VoiceCordAIError):
+class StateTransitionError(MiraCordError):
     """Raised when an invalid state transition is attempted."""
 
     pass

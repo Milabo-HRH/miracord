@@ -1,8 +1,8 @@
-# VoiceCordAI — Discord 语音聊天机器人
+# MIRA.CORD — 多用户实时 AI 接口
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-VoiceCordAI 是一个 Discord 机器人，可让同一语音频道中的用户与 Google Gemini Live、xAI Grok Speech-to-Speech，或已登录的 ChatGPT/Codex 桌面语音会话进行共享语音对话。
+**MIRA** 是 **Multi-user Interface for Realtime AI**（多用户实时 AI 接口）的缩写。MIRA.CORD 是一个 Discord 机器人，可让同一语音频道中的用户与 Google Gemini Live、xAI Grok Speech-to-Speech，或已登录的 ChatGPT/Codex 桌面语音会话进行共享语音对话。
 
 ## 功能
 
@@ -67,8 +67,8 @@ API Key 获取地址：
 1. 克隆仓库：
 
    ```bash
-   git clone https://github.com/Milabo-HRH/VoiceCordAI.git
-   cd VoiceCordAI
+   git clone https://github.com/Milabo-HRH/miracord.git
+   cd miracord
    ```
 
 2. 创建并激活虚拟环境。
@@ -218,14 +218,14 @@ GROK_X_SEARCH_ENABLED=false
 Docker 仅适用于 API 后端：
 
 ```bash
-docker build -t voicecordai .
-docker run --env-file .env voicecordai
+docker build -t miracord .
+docker run --env-file .env miracord
 ```
 
 也可以直接传入环境变量：
 
 ```bash
-docker run -e DISCORD_TOKEN=xxx -e GEMINI_API_KEY=xxx voicecordai
+docker run -e DISCORD_TOKEN=xxx -e GEMINI_API_KEY=xxx miracord
 ```
 
 `desktop_voice` 需要交互式 Windows 音频会话和桌面 Voice 界面，因此不支持 Docker。

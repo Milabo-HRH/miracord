@@ -23,7 +23,7 @@ GROK_DEFAULT_SESSION_CONFIG: Dict[str, Any] = {
         "GROK_INSTRUCTIONS",
         Config.ASSISTANT_SYSTEM_INSTRUCTIONS,
     ),
-    # VoiceCordAI builds turns locally so hold never uploads audio early.
+    # MIRA.CORD builds turns locally so hold never uploads audio early.
     "turn_detection": None,
     "reasoning": {"effort": os.getenv("GROK_REASONING_EFFORT", "high")},
     "audio": {

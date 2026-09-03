@@ -21,7 +21,7 @@ jobs:
           python-version: '3.13'
 
       - name: Install system dependencies
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg libportaudio2
 
       - name: Install Python dependencies
         run: pip install -r requirements.txt -r requirements-dev.txt
@@ -35,4 +35,4 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t voicecordai .
+        run: docker build -t miracord .

@@ -81,7 +81,7 @@ def main() -> None:
         / "AppData"
         / "Local"
         / "Temp"
-        / "voicecord_doubao_positive_48k_stereo.pcm"
+        / "miracord_doubao_positive_48k_stereo.pcm"
     )
     asyncio.run(run(pcm_path))
 

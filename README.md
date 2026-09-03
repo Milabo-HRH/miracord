@@ -1,8 +1,9 @@
-# VoiceCordAI - Voice Chat Bot in Discord
+# MIRA.CORD — Multi-user Interface for Realtime AI
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-A Discord bot that enables a shared voice conversation with Google Gemini Live,
+**MIRA** stands for **Multi-user Interface for Realtime AI**. MIRA.CORD is a
+Discord bot that enables a shared voice conversation with Google Gemini Live,
 xAI Grok Speech-to-Speech, or an already signed-in ChatGPT/Codex desktop Voice
 session directly inside a Discord voice channel.
 
@@ -81,8 +82,8 @@ You will also need to gather API keys and set up your Discord bot.
 
 1.  **Clone the Repository**
     ```bash
-    git clone https://github.com/Milabo-HRH/VoiceCordAI.git
-    cd VoiceCordAI
+    git clone https://github.com/Milabo-HRH/miracord.git
+    cd miracord
     ```
 
 2.  **Set Up a Virtual Environment**
@@ -242,17 +243,17 @@ If you prefer containerized deployment for API providers:
 
 1. **Build the image:**
    ```bash
-   docker build -t voicecordai .
+   docker build -t miracord .
    ```
 
 2. **Run the container:**
    ```bash
-   docker run --env-file .env voicecordai
+   docker run --env-file .env miracord
    ```
 
    Or with individual environment variables:
    ```bash
-   docker run -e DISCORD_TOKEN=xxx -e GEMINI_API_KEY=xxx voicecordai
+   docker run -e DISCORD_TOKEN=xxx -e GEMINI_API_KEY=xxx miracord
    ```
 
 `desktop_voice` is intentionally not supported in Docker because it requires

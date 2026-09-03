@@ -1,4 +1,4 @@
-"""One-shot localhost form for configuring VoiceCordAI without an IDE."""
+"""One-shot localhost form for configuring MIRA.CORD without an IDE."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ PAGE = """<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>VoiceCordAI 本机配置</title>
+  <title>MIRA.CORD 本机配置</title>
   <style>
     body { font: 16px system-ui; max-width: 640px; margin: 48px auto; padding: 0 20px;
            color: #e8e8ee; background: #11131a; }
@@ -35,7 +35,7 @@ PAGE = """<!doctype html>
   </style>
 </head>
 <body>
-  <h1>VoiceCordAI 本机配置</h1>
+  <h1>MIRA.CORD 本机配置</h1>
   <p class="note">内容只会发送到本机 127.0.0.1，并写入被 Git 忽略的 <code>.env</code>。
   页面不加载任何外部资源，也不会回显密钥。</p>
   {message}
@@ -105,7 +105,7 @@ def _write_env(discord_token: str, gemini_key: str) -> None:
 
 
 class ConfigureHandler(BaseHTTPRequestHandler):
-    server_version = "VoiceCordAIConfig/1"
+    server_version = "MiraCordConfig/1"
 
     def log_message(self, _format: str, *args: object) -> None:
         return
