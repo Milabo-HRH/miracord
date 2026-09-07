@@ -72,6 +72,8 @@ class GeminiEventHandlerAdapter:
         self.response_audio_format: Tuple[int, int] = response_audio_format
         self._active_turn_id: Optional[str] = None
         self._stream_started_for_turn: bool = False
+        self._suppressed = False
+        self._revision = 0
 
         self.EVENT_HANDLERS: Dict[
             type, Callable[[GeminiRealtimeEvent], Awaitable[None]]
@@ -81,6 +83,15 @@ class GeminiEventHandlerAdapter:
             TurnEndEvent: self._handle_turn_end,
         }
 
+    async def cancel_current_turn(self) -> None:
+        """Stop playback immediately and discard further messages of this turn."""
+        self._suppressed = True
+        self._revision += 1
+        self.audio_playback_manager.interrupt_audio_stream()
+        if self._stream_started_for_turn:
+            self._stream_started_for_turn = False
+            await self.audio_playback_manager.end_audio_stream()
+
     async def dispatch_event(self, event: GeminiRealtimeEvent) -> None:
         """Dispatches a synthetic Gemini event to its appropriate handler."""
         handler = self.EVENT_HANDLERS.get(type(event))
@@ -89,8 +100,8 @@ class GeminiEventHandlerAdapter:
                 await handler(event)
             except Exception as e:
                 logger.error(
-                    f"Error in handler for Gemini event type {type(event).__name__}: {e}",
-                    exc_info=True,
+                    "Gemini event handler failed: event=%s error_type=%s",
+                    type(event).__name__, type(e).__name__,
                 )
         else:
             logger.warning(
@@ -106,6 +117,8 @@ class GeminiEventHandlerAdapter:
         logger.info(f"GeminiEventHandler: New turn started with ID: {event.turn_id}")
         self._active_turn_id = event.turn_id
         self._stream_started_for_turn = False
+        self._suppressed = False
+        self._revision += 1
 
     async def _handle_turn_message(self, event: TurnMessageEvent) -> None:
         """
@@ -115,8 +128,13 @@ class GeminiEventHandlerAdapter:
         """
         message = event.message
         if message.server_content:
+            if message.server_content.interrupted:
+                await self.cancel_current_turn()
+                return
+            if self._suppressed:
+                return
+            revision = self._revision
             audio_data = message.data
-            text_data = message.text
 
             if audio_data:
                 # If this is the first audio chunk for this turn, start the stream.
@@ -128,6 +146,10 @@ class GeminiEventHandlerAdapter:
                         await self.audio_playback_manager.start_new_audio_stream(
                             self._active_turn_id, self.response_audio_format
                         )
+                        if self._suppressed or revision != self._revision:
+                            # Local cancellation can run while playback startup
+                            # awaits; never append the now-stale first chunk.
+                            return
                         self._stream_started_for_turn = True
                     else:
                         logger.warning(
@@ -142,18 +164,14 @@ class GeminiEventHandlerAdapter:
                     await self.audio_playback_manager.add_audio_chunk(audio_data)
                 except Exception as e:
                     logger.error(
-                        f"Error adding audio chunk to AudioPlaybackManager: {e}",
-                        exc_info=True,
+                        "Gemini audio playback failed: error_type=%s", type(e).__name__,
                     )
 
-            if text_data:
-                logger.info(f"Gemini text response: {text_data}")
-
         elif message.go_away:
-            logger.warning(f"Received 'go_away' message from Gemini: {message.go_away}")
+            logger.warning("Gemini requested connection rotation.")
         elif message.usage_metadata:
             logger.debug(
-                f"Received 'usage_metadata' from Gemini: {message.usage_metadata}"
+                "Received Gemini usage metadata."
             )
 
     async def _handle_turn_end(self, event: TurnEndEvent) -> None:
@@ -170,6 +188,8 @@ class GeminiEventHandlerAdapter:
                 await self.audio_playback_manager.end_audio_stream()
             self._active_turn_id = None
             self._stream_started_for_turn = False
+            self._suppressed = False
+            self._revision += 1
         else:
             logger.warning(
                 f"Received TurnEndEvent for '{event.turn_id}', but active turn is '{self._active_turn_id}'. Ignoring."

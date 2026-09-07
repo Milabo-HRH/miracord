@@ -1,10 +1,10 @@
 import asyncio
 from unittest.mock import MagicMock
 
-import pytest
 import discord
+import pytest
 
-from src.audio.playback import AudioPlaybackManager
+from src.audio.playback import AudioPlaybackManager, _PlaybackStream
 
 
 @pytest.fixture
@@ -157,3 +157,50 @@ async def test_end_audio_stream_idempotent(
     await audio_playback_manager.audio_chunk_queue.get()
     assert audio_playback_manager.audio_chunk_queue.empty()
     assert stream_id in audio_playback_manager._eos_queued_for_streams
+
+
+@pytest.mark.asyncio
+async def test_cleanup_unblocks_pipe_before_waiting_for_feeder(audio_playback_manager):
+    """A stopped Discord reader must not deadlock a blocked FFmpeg writer."""
+    manager = audio_playback_manager
+    manager._current_stream_id = "first"
+    manager._current_response_format = (24000, 1)
+    pipe_released = asyncio.Event()
+    feeder_started = asyncio.Event()
+    loop = asyncio.get_running_loop()
+    source = MagicMock()
+    source.cleanup.side_effect = lambda: loop.call_soon_threadsafe(pipe_released.set)
+
+    async def blocked_feeder():
+        feeder_started.set()
+        try:
+            await asyncio.Future()
+        finally:
+            # Closing a buffered writer can block until FFmpeg releases its pipe.
+            await pipe_released.wait()
+
+    stream = _PlaybackStream("first", source, -1, -1)
+    stream.feeder_task = asyncio.create_task(blocked_feeder())
+    await feeder_started.wait()
+    cleanup = asyncio.create_task(manager._cleanup_playback_stream(stream))
+    try:
+        await asyncio.wait_for(asyncio.shield(cleanup), 0.5)
+        assert manager.get_current_playing_response_id() is None
+        source.cleanup.assert_called_once()
+        assert stream.feeder_task.done()
+    finally:
+        pipe_released.set()
+        await asyncio.gather(cleanup, stream.feeder_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_interrupt_clears_playing_gate_before_next_turn(audio_playback_manager):
+    """New input must not be closed by an interrupted, stale playback ID."""
+    manager = audio_playback_manager
+    await manager.start_new_audio_stream("first", (24000, 1))
+    manager.interrupt_audio_stream()
+    assert manager.get_current_playing_response_id() is None
+    assert manager._current_response_format is None
+    assert manager._playback_control_event.is_set()
+    await manager.start_new_audio_stream("second", (24000, 1))
+    assert manager.get_current_playing_response_id() == "second"

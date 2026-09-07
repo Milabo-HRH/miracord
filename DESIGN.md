@@ -1,7 +1,18 @@
 # Discord 唤醒词语音助手设计
 
-状态：Draft v0.6（V1 + desktop Voice bridge implemented，2026-09-02）
+状态：v0.8（API 上下文与工具链已实现并通过离线协议测试，2026-09-03；付费通话验收待完成）
 基础项目：[Monoese/VoiceCordAI](https://github.com/Monoese/VoiceCordAI)（MIT）
+
+## 当前决策（优先于下文历史设计）
+
+- 双第一公民改为 **GPT / OpenAI Realtime API 与 Grok Speech-to-Speech API**，共同作为后续功能和端到端测试的主要目标；没有在两者之间指定新的默认后端。
+- Gemini 降为兼容选项，保留已有实现，不再作为新功能的主要设计约束。不删除适配器、不修改正在运行的后端，也不因本决策自动发起付费 API 调用。
+- GPT 指 API 路线，不是依赖 ChatGPT/Codex 桌面 Voice。OpenAI 已升级为 GA WebSocket 协议；与 Grok 共用上下文/函数工具执行层，保留各自的 session schema。
+- 低延迟方向：后台采集对局并预取 OP.GG 缓存，发言时注入简短的最新上下文；常规回答不等待模型先调用工具。MCP 保留为额外查询和其他客户端的访问接口。
+- 发言者身份与游戏上下文来源分离。没有明确绑定时，本机对局只是共享参考，不能推断当前发言者正在玩该游戏、属于该队或使用某个英雄。
+- 目前已实现第 18 节的数据/MCP 层及第 19 节的每轮上下文/API 工具执行回路。双后端本地模拟 WebSocket 链路已通过；真实付费 GPT/Grok + Discord 端到端验收未完成。
+
+第 1–17 节保留初始方案、旧版能力/价格调研和实现记录。其中“Gemini/Grok 第一公民”“OpenAI 放到 V1 之后”和“不做 MCP”的旧决定已被本节及第 18 节替代；历史模型和价格信息不是本次重新核实的结果。
 
 ## 1. 目标
 
@@ -425,3 +436,53 @@ V1 已确定：Gemini Live 与 Grok Speech-to-Speech 双第一公民，直接使
 - 按 Discord 时间戳混合真正重叠的多用户 PCM；当前 V1 路径在单个 utterance 录制期间仍串行化输入；
 - 250–500 ms pre-roll、按真实播放毫秒数 truncate，以及 Gemini session resumption summary；
 - `GameKnowledgeRouter` 和 ARAM Mayhem/LCU 数据 adapter；这些不阻塞原生 Web Search 的第一版。
+
+## 18. Mayhem MCP 增量实现（2026-09-03）
+
+本节更新此前“V1 不做 MCP”的范围决定：现在优先接入低延迟数据工具，不增加复杂的推荐判断或额外模型推理。
+
+- 已在现有 `miracord-league` stdio MCP 中增加 `get_mayhem_build` 与 `get_mayhem_augments`。
+- 本地适配公开 OP.GG Mayhem 页面，补全官方远端 MCP 的 tier 过滤遗漏；不是修改官方托管服务。普通 ARAM 不作为失败回退。
+- 出装只返回来源展示的路线；强化保留原始 tier、rarity、performance、popular，缺失元数据保持空值。默认返回 12 条，支持按 ID/名称查询与分页，不按 tier 排除候选。
+- 六小时内存/磁盘缓存、进程内同页并发合并、60 秒失败退避；故障时最多使用 24 小时内的缓存并显式标旧。返回来源、补丁与抓取时间。此路径不调用额外 LLM。
+- MCP 客户端负责启动服务。已有注册在服务重启后发现新增工具，不要求重启 Discord bot。
+- 此阶段完成数据源和 MCP 服务层；后续 GPT/Grok 语音接入见第 19 节。Gemini 和 `desktop_voice` 仍不自动注入工具结果。
+
+## 19. GPT/Grok API 上下文与工具执行（2026-09-03）
+
+### 已实现
+
+- OpenAI 改为 GA JSON WebSocket；默认 `gpt-realtime`，保留 `OPENAI_REALTIME_MODEL_NAME` 覆盖。Grok 保持 `grok-voice-think-fast-2.0`，默认 reasoning 为 `none`，可以配置 `high`。不变更已有 `.env` 或运行实例。
+- 两者共享 `ToolRealtimeManager`，但 OpenAI 的音频/turn detection 嵌套在 `audio.input`，Grok 使用顶层 `turn_detection`。初始连接必须收到 `session.updated` 才视为就绪；重连重新发送配置和工具表，不重放旧音频。
+- 默认服务端 VAD，600 ms 静默结束一句话；不同时手动 commit/create，避免重复回复。本地十秒安全门控保持。`hold` 仍在本地缓冲，释放后临时使用手动提交，下一轮流式输入恢复服务端 VAD。
+- `GameContextService` 在后台每两秒直接读取 `/allgamedata`，快照超过六秒、端口关闭或有 `GameEnd` 即不可用于当前局。阵容变化、游戏时间明显回退或重新开局产生新的 matchRef。不使用历史采集文件冒充进行中的对局。
+- 后台预取本局最多十个英雄的 OP.GG 出装与强化表，最多两个请求并发，复用六小时缓存与旧数据标记。完整强化表只在缓存，不注入模型；预取未完成也不阻塞语音。
+- 每轮输入前发送一段 `VOICE_CONTEXT` JSON，再发送语音。包括 Discord 发言者、共享本机对局、时间戳、阵容、装备、观察到的强化及适度截短的出装备选。模型上下文消息限制约 8,000 字符，必要时省略出装/字段并标记截短。同用户下一轮也刷新；断线重连后第一段音频之前重新注入。
+- 当前采用**每轮完整的限长快照**，不是静态字段只发一次的 delta 协议。这样换局/重连不依赖模型正确合并旧数据；进一步压缩重复字段留待真实费用与延迟测试。
+- 发言者没有游戏账号绑定，`gameBinding=null`；本机比赛为 `shared_reference`。不推断说话的人在玩哪个游戏、对应哪个英雄。游戏账号/Riot ID 不上传，Discord ID/显示名作为发言标签发送给所选 API。
+- API 函数工具直接调用 MCP 使用的相同 Python 数据适配器，避免本地再绕一层 stdio。提供当前快照、Mayhem 出装、Mayhem 强化查询；不是让远程 API 访问电脑的 localhost MCP。
+- 函数参数白名单、限长、最多十二条强化结果、单次执行十二秒超时、有限工具轮数。并行工具结果全部回填后只续答一次；打断、新回合、断线使旧任务失效，不允许旧结果触发新回答。
+- OpenAI 按 Discord 播放线程消费的 PCM 毫秒数 truncate，丢弃打断后的旧音频事件；此位置不是远端设备实际听到的精确时间。Grok 支持取消/丢弃旧输出，但未验证其等价 transcript truncation。
+
+### 开关与边界
+
+`LEAGUE_CONTEXT_ENABLED`、`OPGG_PREFETCH_ENABLED`、`LEAGUE_TOOLS_ENABLED` 分别控制后台上下文、主动 OP.GG 预取和模型额外查询。它们仅接在 GPT/Grok API 路线；`NATIVE_WEB_SEARCH_MODE` 是另一个开关。Grok 保留原生 Web/X；GPT 的通用搜索增量见下节。截图、游戏账号绑定、真正重叠的多用户混音、重连历史恢复仍未实现。已有 Gemini/桌面 Voice 功能保留。
+
+### GPT 通用搜索增量（2026-09-03）
+
+语音模型保持不变，提供 `search_web(query, source)` 函数，后台用同一 API Key 请求 Responses `web_search`。搜索助手默认 `gpt-5.4-mini`、reasoning `none`；真实 API 不允许 `gpt-4.1-mini` 使用域名过滤，因此不把它作为默认。`source` 可指定 Riot、Reddit、OP.GG、League Wiki、arammayhem.com，或偏好排序/全网。无需新 MCP 服务。
+
+普通列表、performance、强化效果继续使用快速 OP.GG 查询；用户明确联网、最新变动、社区讨论才触发通用搜索。查询缺失不自动展开长研究。每轮最多一次搜索、每个 Responses 请求最多一次托管工具调用、输出 700 tokens、总超时 15 秒（含排队）、无自动重试；成功结果在进程内缓存 60 秒，最多 64 项。打断/重连使迟到结果失效。仅发送聚焦后的公开问题，不发送完整会话；`store=false` 不代表服务端零保留。
+
+工具返回简短摘要、来源链接、搜索时间与缓存状态；搜索失败与确无证据分开。文字频道发布带引用的摘要，语音只报答案及来源名。网页内容作为不可信证据，不能指挥 bot；社区观点不充当胜率。默认运行日志只记录状态、来源数、耗时，不记录语音、查询内容或 API Key。关闭搜索不关闭独立的 OP.GG 查询。代码/配置重启生效。
+
+每轮上下文是模型计费输入，Grok 文本事件也可能单独计费；后台数据请求本身不调用 LLM。本次没有修改历史价格估算，也没有发起真实付费模型请求。
+
+### 验证与上线前验收
+
+新增离线测试覆盖上下文来源、身份去关联、过期/换局、缓存预取、同用户连续发言、上传拒绝、hold、VAD/手动提交互斥、参数校验、并行工具单次续答、打断迟到音频和工具、播放位置计数、配置失败、真实本地 WebSocket 连接/函数回填/音频回复/重连。不是调用云模型的测试。
+
+目前全量回归存在四项原有 wakeword 测试失败（旧测试引用不存在的 `wakeword.time`，以及新旧模型文件名不匹配），与本次 API 改动无关；没有为了得到全绿而删除/跳过这些测试。充值并配置对应 API Key 后，仍需在真实 Discord 频道验证识别率、首音频延迟、队友打断、模型工具选择与账单。本次不自动切换/重启 bot，也不控制用户桌面。
+
+协议依据：[OpenAI Realtime conversations](https://developers.openai.com/api/docs/guides/realtime-conversations)、[OpenAI Realtime WebSocket](https://developers.openai.com/api/docs/guides/realtime-websocket)、[Grok Speech-to-Speech](https://docs.x.ai/developers/model-capabilities/audio/speech-to-speech)。
+- 截图仍是设计项：`self_stream` 能标识 Go Live 状态，不是画面帧。未确认官方 bot-token 接收共享视频的受支持路径。本地观看窗口截图或经共享者授权的发送端采集可另行实现，不在本次改动中操作客户端或采集画面。

@@ -1,0 +1,3895 @@
+{
+  "schema_version": 1,
+  "scope": "Text conversation + production tool path. Questions are reviewed paraphrases of user-reported gameplay, not verbatim audio transcripts. No scripted assistant history. Rubrics are not sent to the model.",
+  "scenarios": [
+    {
+      "id": "anivia_choice_and_correction",
+      "origin": "Gameplay: Shrink Engine / 射手法师 comparison, repeated name correction",
+      "split": "development",
+      "turns": [
+        {
+          "question": "豆包，我玩冰鸟，缩小引擎和射手法师选哪个？",
+          "expected": {
+            "answer_not_contains": [
+              "哪个英雄",
+              "你想选哪个"
+            ],
+            "max_answer_chars": 180,
+            "allowed_champions": [
+              "anivia"
+            ]
+          },
+          "review_rubric": [
+            "Resolve both offered augments for Anivia; give a grounded choice or explain precisely why evidence cannot distinguish them",
+            "Do not substitute source order for strength or make up synergy"
+          ]
+        },
+        {
+          "question": "射手法师，射手的射手，法师的法师，不是射手座。",
+          "expected": {
+            "answer_not_contains": [
+              "哪个英雄",
+              "描述一下图标"
+            ],
+            "max_answer_chars": 160,
+            "allowed_champions": [
+              "anivia"
+            ]
+          },
+          "review_rubric": [
+            "Retain champion, other option and original comparison; recognize correction even if the previous answer was already correct"
+          ]
+        },
+        {
+          "question": "我主要放技能，不怎么平A，那怎么选？",
+          "expected": {
+            "answer_not_contains": [
+              "哪个英雄",
+              "你想选哪个"
+            ],
+            "max_answer_chars": 160,
+            "allowed_champions": [
+              "anivia"
+            ]
+          },
+          "review_rubric": [
+            "Use actual prior model answer and verified effects; acknowledge the stated play pattern without inventing trigger mechanics"
+          ]
+        },
+        {
+          "question": "缩小引擎死了会怎么样？",
+          "expected": {
+            "answer_contains_any": [
+              [
+                "65",
+                "六十五"
+              ]
+            ],
+            "answer_not_contains": [
+              "不损失"
+            ],
+            "max_answer_chars": 120,
+            "allowed_champions": [
+              "anivia"
+            ]
+          },
+          "review_rubric": [
+            "Frozen effect says lose 65% of stacks on death; no routine source preamble"
+          ]
+        }
+      ],
+      "state": {
+        "status": "ok",
+        "scope": "shared_reference",
+        "source": "synthetic match for evaluation",
+        "ageSeconds": 0,
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 300
+        },
+        "activePlayer": {
+          "slot": "order-01"
+        },
+        "players": [
+          {
+            "slot": "order-01",
+            "champion": "Khazix",
+            "team": "ORDER",
+            "isActivePlayer": true,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-02",
+            "champion": "Garen",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-03",
+            "champion": "Anivia",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-04",
+            "champion": "Yunara",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-05",
+            "champion": "Brand",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-01",
+            "champion": "Draven",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-02",
+            "champion": "Katarina",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-03",
+            "champion": "Shyvana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-04",
+            "champion": "Tristana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-05",
+            "champion": "TwistedFate",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "yunara_item_decision",
+      "origin": "Gameplay: 饮血还是破败, followed by 你知道饮血是哪个装备吗",
+      "split": "development",
+      "turns": [
+        {
+          "question": "豆包，我玩芸阿娜，我是出饮血还是出破败啊？",
+          "expected": {
+            "answer_not_contains": [
+              "你想出哪件",
+              "你想选哪个"
+            ],
+            "max_answer_chars": 180,
+            "allowed_champions": [
+              "yunara"
+            ]
+          },
+          "review_rubric": [
+            "Recognize both items; compare only if item effects or applicable statistics are available",
+            "Missing item effects in current tools is a capability gap, not permission to fabricate advice"
+          ]
+        },
+        {
+          "question": "你知道饮血是哪个装备吗？",
+          "expected": {
+            "answer_not_contains": [
+              "哪个英雄",
+              "强化符文",
+              "渴血战斧"
+            ],
+            "max_answer_chars": 120,
+            "allowed_champions": [
+              "yunara"
+            ]
+          },
+          "review_rubric": [
+            "Answer item identity, not a new build recommendation; acknowledge if there is no item identity tool"
+          ]
+        },
+        {
+          "question": "推荐里面没有就不能出吗？",
+          "expected": {
+            "answer_contains_any": [
+              [
+                "不是",
+                "不代表",
+                "不等于",
+                "不意味着",
+                "不能说明",
+                "不一定"
+              ]
+            ],
+            "max_answer_chars": 130,
+            "allowed_champions": [
+              "yunara"
+            ]
+          },
+          "review_rubric": [
+            "List absence does not establish a game restriction; do not repeat the user's original choice question"
+          ]
+        }
+      ],
+      "state": {
+        "status": "ok",
+        "scope": "shared_reference",
+        "source": "synthetic match for evaluation",
+        "ageSeconds": 0,
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 300
+        },
+        "activePlayer": {
+          "slot": "order-01"
+        },
+        "players": [
+          {
+            "slot": "order-01",
+            "champion": "Khazix",
+            "team": "ORDER",
+            "isActivePlayer": true,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-02",
+            "champion": "Garen",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-03",
+            "champion": "Anivia",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-04",
+            "champion": "Yunara",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-05",
+            "champion": "Brand",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-01",
+            "champion": "Draven",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-02",
+            "champion": "Katarina",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-03",
+            "champion": "Shyvana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-04",
+            "champion": "Tristana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-05",
+            "champion": "TwistedFate",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "hubris_identity",
+      "origin": "Gameplay: 你认识狂妄吗; follow-ups are plausible extensions",
+      "split": "development",
+      "turns": [
+        {
+          "question": "豆包，你认识狂妄吗？",
+          "expected": {
+            "max_answer_chars": 130
+          },
+          "review_rubric": [
+            "Recognize possible game item Hubris, or ask one focused disambiguation; do not assume a player's champion or invent a tool search"
+          ]
+        },
+        {
+          "question": "我说的是装备，不是海克斯。它适合我这个英雄吗？",
+          "expected": {
+            "identity_confirmation_allowed": true,
+            "answer_contains_any": [
+              [
+                "螳螂",
+                "卡兹克",
+                "主机",
+                "队友"
+              ]
+            ],
+            "max_answer_chars": 130
+          },
+          "review_rubric": [
+            "Roster and host Khazix are available; unbound speaker may be any teammate. Confirm host hero versus teammate, do not pretend no game context exists."
+          ]
+        }
+      ],
+      "state": {
+        "status": "ok",
+        "scope": "shared_reference",
+        "source": "synthetic match for evaluation",
+        "ageSeconds": 0,
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 300
+        },
+        "activePlayer": {
+          "slot": "order-01"
+        },
+        "players": [
+          {
+            "slot": "order-01",
+            "champion": "Khazix",
+            "team": "ORDER",
+            "isActivePlayer": true,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-02",
+            "champion": "Garen",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-03",
+            "champion": "Anivia",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-04",
+            "champion": "Yunara",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-05",
+            "champion": "Brand",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-01",
+            "champion": "Draven",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-02",
+            "champion": "Katarina",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-03",
+            "champion": "Shyvana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-04",
+            "champion": "Tristana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-05",
+            "champion": "TwistedFate",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "team_tiers_and_loss",
+      "origin": "Gameplay: both teams' tiers and why high-tier champions still lose; explicit roster is synthetic to avoid identity ambiguity",
+      "split": "development",
+      "turns": [
+        {
+          "question": "我们德莱文、卡特、龙女、小炮、卡牌，对面塞纳、剑姬、皎月、阿萝拉、死歌。这十个英雄都T几？分两边说。",
+          "expected": {
+            "max_answer_chars": 280
+          },
+          "review_rubric": [
+            "Retrieve all ten champion tiers, group 5+5 in the supplied order, no augment-tier substitution",
+            "Compare returned tiers to every spoken assignment; tool count alone is not success"
+          ]
+        },
+        {
+          "question": "那我们这边是不是更容易赢？",
+          "expected": {
+            "answer_not_regex": [
+              "[0-9]+(?:\\.[0-9]+)?%"
+            ],
+            "max_answer_chars": 180,
+            "answer_not_contains": [
+              "不一定",
+              "操作",
+              "配合",
+              "你想知道"
+            ]
+          },
+          "review_rubric": [
+            "Use the remembered teams; tiers alone cannot produce a calibrated win probability"
+          ]
+        },
+        {
+          "question": "那评级高为什么还打不过啊？",
+          "expected": {
+            "max_answer_chars": 180,
+            "required_tool_names": [
+              "get_live_game_state"
+            ],
+            "answer_not_contains": [
+              "主要是看英雄的平均表现",
+              "还得看选手的操作"
+            ]
+          },
+          "review_rubric": [
+            "Refresh current game state: Katarina 1/8/2 at 14min with only the recorded item. Give a brief concrete roast; do not claim T1 unless actual tier lookup establishes it. Do not infer unseen missed skills from KDA alone."
+          ],
+          "tool_state": {
+            "status": "ok",
+            "scope": "shared_reference",
+            "source": "synthetic match for evaluation",
+            "ageSeconds": 0,
+            "game": {
+              "isAramMayhem": true,
+              "gameTimeSeconds": 840
+            },
+            "activePlayer": {
+              "slot": "order-01"
+            },
+            "players": [
+              {
+                "slot": "order-01",
+                "champion": "Draven",
+                "team": "ORDER",
+                "isActivePlayer": true,
+                "scores": {
+                  "kills": 0,
+                  "deaths": 0,
+                  "assists": 0
+                },
+                "items": []
+              },
+              {
+                "slot": "order-02",
+                "champion": "Katarina",
+                "team": "ORDER",
+                "isActivePlayer": false,
+                "scores": {
+                  "kills": 1,
+                  "deaths": 8,
+                  "assists": 2
+                },
+                "items": [
+                  {
+                    "id": 1052,
+                    "name": "增幅典籍",
+                    "count": 1
+                  }
+                ]
+              },
+              {
+                "slot": "order-03",
+                "champion": "Shyvana",
+                "team": "ORDER",
+                "isActivePlayer": false,
+                "scores": {
+                  "kills": 0,
+                  "deaths": 0,
+                  "assists": 0
+                },
+                "items": []
+              },
+              {
+                "slot": "order-04",
+                "champion": "Tristana",
+                "team": "ORDER",
+                "isActivePlayer": false,
+                "scores": {
+                  "kills": 0,
+                  "deaths": 0,
+                  "assists": 0
+                },
+                "items": []
+              },
+              {
+                "slot": "order-05",
+                "champion": "TwistedFate",
+                "team": "ORDER",
+                "isActivePlayer": false,
+                "scores": {
+                  "kills": 0,
+                  "deaths": 0,
+                  "assists": 0
+                },
+                "items": []
+              },
+              {
+                "slot": "chaos-01",
+                "champion": "Senna",
+                "team": "CHAOS",
+                "isActivePlayer": false,
+                "scores": {
+                  "kills": 0,
+                  "deaths": 0,
+                  "assists": 0
+                },
+                "items": []
+              },
+              {
+                "slot": "chaos-02",
+                "champion": "Fiora",
+                "team": "CHAOS",
+                "isActivePlayer": false,
+                "scores": {
+                  "kills": 0,
+                  "deaths": 0,
+                  "assists": 0
+                },
+                "items": []
+              },
+              {
+                "slot": "chaos-03",
+                "champion": "Diana",
+                "team": "CHAOS",
+                "isActivePlayer": false,
+                "scores": {
+                  "kills": 0,
+                  "deaths": 0,
+                  "assists": 0
+                },
+                "items": []
+              },
+              {
+                "slot": "chaos-04",
+                "champion": "Aurora",
+                "team": "CHAOS",
+                "isActivePlayer": false,
+                "scores": {
+                  "kills": 0,
+                  "deaths": 0,
+                  "assists": 0
+                },
+                "items": []
+              },
+              {
+                "slot": "chaos-05",
+                "champion": "Karthus",
+                "team": "CHAOS",
+                "isActivePlayer": false,
+                "scores": {
+                  "kills": 0,
+                  "deaths": 0,
+                  "assists": 0
+                },
+                "items": []
+              }
+            ]
+          }
+        }
+      ],
+      "state": {
+        "status": "ok",
+        "scope": "shared_reference",
+        "source": "synthetic match for evaluation",
+        "ageSeconds": 0,
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 300
+        },
+        "activePlayer": {
+          "slot": "order-01"
+        },
+        "players": [
+          {
+            "slot": "order-01",
+            "champion": "Draven",
+            "team": "ORDER",
+            "isActivePlayer": true,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-02",
+            "champion": "Katarina",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-03",
+            "champion": "Shyvana",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-04",
+            "champion": "Tristana",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-05",
+            "champion": "TwistedFate",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-01",
+            "champion": "Senna",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-02",
+            "champion": "Fiora",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-03",
+            "champion": "Diana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-04",
+            "champion": "Aurora",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-05",
+            "champion": "Karthus",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "regional_name_and_metric",
+      "origin": "Gameplay: High Roller regional names and performance/win-rate confusion",
+      "split": "development",
+      "turns": [
+        {
+          "question": "我玩冰鸟，掷骰狂人是High Roller吗？豪掷千金是不是同一个？",
+          "expected": {
+            "max_answer_chars": 150
+          },
+          "review_rubric": [
+            "Verify same namespaced augment across Mainland and Malaysia names; do not treat translations as different augments"
+          ]
+        },
+        {
+          "question": "那它这个英雄上的分数呢？",
+          "expected": {
+            "answer_contains_any": [
+              [
+                "performance",
+                "表现分",
+                "表现评分"
+              ]
+            ],
+            "max_answer_chars": 130
+          },
+          "review_rubric": [
+            "Resolve pronoun using the actual prior conversation; retain Anivia"
+          ]
+        },
+        {
+          "question": "这个分数就是胜率吗？",
+          "expected": {
+            "answer_contains_any": [
+              [
+                "不是",
+                "不代表",
+                "不等于"
+              ]
+            ],
+            "max_answer_chars": 130
+          },
+          "review_rubric": [
+            "Do not reinterpret OP.GG performance as win rate or mix different sources"
+          ]
+        }
+      ],
+      "state": {
+        "status": "ok",
+        "scope": "shared_reference",
+        "source": "synthetic match for evaluation",
+        "ageSeconds": 0,
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 300
+        },
+        "activePlayer": {
+          "slot": "order-01"
+        },
+        "players": [
+          {
+            "slot": "order-01",
+            "champion": "Khazix",
+            "team": "ORDER",
+            "isActivePlayer": true,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-02",
+            "champion": "Garen",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-03",
+            "champion": "Anivia",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-04",
+            "champion": "Yunara",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-05",
+            "champion": "Brand",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-01",
+            "champion": "Draven",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-02",
+            "champion": "Katarina",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-03",
+            "champion": "Shyvana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-04",
+            "champion": "Tristana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-05",
+            "champion": "TwistedFate",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "heldout_speaker_change",
+      "origin": "Held-out transfer: explicit hero change and new speaker using known gameplay policy",
+      "split": "heldout",
+      "turns": [
+        {
+          "speaker": "player_a",
+          "question": "我玩冰鸟，魔法飞弹怎么触发？",
+          "expected": {
+            "answer_contains_any": [
+              [
+                "技能",
+                "法术"
+              ]
+            ],
+            "max_answer_chars": 140
+          },
+          "review_rubric": [
+            "Use the frozen augment effect rather than guessed item mechanics"
+          ]
+        },
+        {
+          "speaker": "player_b",
+          "question": "豆包，我玩火男，第一件出什么？",
+          "expected": {
+            "answer_not_contains": [
+              "冰鸟",
+              "出门装"
+            ],
+            "max_answer_chars": 150
+          },
+          "review_rubric": [
+            "Use Brand's equipment; first completed item differs from starting purchases; no old-speaker champion contamination"
+          ]
+        },
+        {
+          "speaker": "player_b",
+          "question": "我说的是海克斯科技火箭腰带这件装备。",
+          "expected": {
+            "answer_not_contains": [
+              "哪个英雄"
+            ],
+            "max_answer_chars": 150
+          },
+          "review_rubric": [
+            "Retain Brand, update item candidate, do not route the word 海克斯 as an augment"
+          ]
+        }
+      ],
+      "state": {
+        "status": "ok",
+        "scope": "shared_reference",
+        "source": "synthetic match for evaluation",
+        "ageSeconds": 0,
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 300
+        },
+        "activePlayer": {
+          "slot": "order-01"
+        },
+        "players": [
+          {
+            "slot": "order-01",
+            "champion": "Khazix",
+            "team": "ORDER",
+            "isActivePlayer": true,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-02",
+            "champion": "Garen",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-03",
+            "champion": "Anivia",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-04",
+            "champion": "Yunara",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-05",
+            "champion": "Brand",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-01",
+            "champion": "Draven",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-02",
+            "champion": "Katarina",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-03",
+            "champion": "Shyvana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-04",
+            "champion": "Tristana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-05",
+            "champion": "TwistedFate",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "heldout_chatter_and_return",
+      "origin": "Held-out transfer of observed casual chatter and an interrupted game question; text only, not an audio interruption test",
+      "split": "heldout",
+      "turns": [
+        {
+          "question": "台湾口音嘛，哈哈。",
+          "expected": {
+            "tool_names": [],
+            "answer_not_contains": [
+              "没查到",
+              "装备",
+              "强化"
+            ],
+            "max_answer_chars": 80
+          },
+          "review_rubric": [
+            "Do not invent an item query; native text harness cannot grade silence"
+          ]
+        },
+        {
+          "question": "豆包，我玩蛮王，T几？",
+          "expected": {
+            "max_answer_chars": 90
+          },
+          "review_rubric": [
+            "Recognize nickname and use champion tier tool; answer directly"
+          ]
+        },
+        {
+          "question": "刚才没听清，再说一遍，短一点。",
+          "expected": {
+            "answer_not_regex": [
+              "op\\.?gg",
+              "根据"
+            ],
+            "max_answer_chars": 45
+          },
+          "review_rubric": [
+            "Repeat the actual previous tier, do not switch champion or ask a new question"
+          ]
+        }
+      ],
+      "state": {
+        "status": "ok",
+        "scope": "shared_reference",
+        "source": "synthetic match for evaluation",
+        "ageSeconds": 0,
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 300
+        },
+        "activePlayer": {
+          "slot": "order-01"
+        },
+        "players": [
+          {
+            "slot": "order-01",
+            "champion": "Khazix",
+            "team": "ORDER",
+            "isActivePlayer": true,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-02",
+            "champion": "Garen",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-03",
+            "champion": "Anivia",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-04",
+            "champion": "Yunara",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-05",
+            "champion": "Brand",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-01",
+            "champion": "Draven",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-02",
+            "champion": "Katarina",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-03",
+            "champion": "Shyvana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-04",
+            "champion": "Tristana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-05",
+            "champion": "TwistedFate",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          }
+        ]
+      }
+    },
+    {
+      "id": "aurora_hat_prismatic",
+      "origin": "User review: identify 帽子 from rarity-filtered multilingual augment candidates before judging availability; not an equipment query.",
+      "split": "development",
+      "state": {
+        "status": "ok",
+        "scope": "shared_reference",
+        "source": "synthetic match for evaluation",
+        "ageSeconds": 0,
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 300
+        },
+        "activePlayer": {
+          "slot": "order-01"
+        },
+        "players": [
+          {
+            "slot": "order-01",
+            "champion": "Aurora",
+            "team": "ORDER",
+            "isActivePlayer": true,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": [],
+            "championSlug": "aurora"
+          },
+          {
+            "slot": "order-02",
+            "champion": "Garen",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-03",
+            "champion": "Anivia",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-04",
+            "champion": "Yunara",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-05",
+            "champion": "Brand",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-01",
+            "champion": "Draven",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-02",
+            "champion": "Katarina",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-03",
+            "champion": "Shyvana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-04",
+            "champion": "Tristana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-05",
+            "champion": "TwistedFate",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          }
+        ]
+      },
+      "turns": [
+        {
+          "question": "豆包，我玩阿萝拉，棱彩里面能不能选帽子？",
+          "expected": {
+            "allowed_champions": [
+              "aurora"
+            ],
+            "required_tool_names": [
+              "get_mayhem_augments"
+            ],
+            "forbidden_tool_names": [
+              "lookup_game_item",
+              "get_mayhem_build"
+            ],
+            "answer_contains_any": [
+              [
+                "沃格勒特",
+                "乌莉特",
+                "烏莉特",
+                "Wooglet"
+              ]
+            ],
+            "max_answer_chars": 180,
+            "candidate_lookup": {
+              "rarity": "prismatic",
+              "source_rarity": 8,
+              "id": 1156,
+              "locales": [
+                "en_US",
+                "zh_CN",
+                "zh_MY",
+                "zh_TW"
+              ]
+            }
+          },
+          "review_rubric": [
+            "First enumerate this champion's prismatic augments without guessing the nickname/English/ID in tool arguments.",
+            "Resolve 帽子 from returned four-language names to ID1156; use tool evidence before saying it belongs to the pool.",
+            "Candidate eligibility is not proof it is currently offered on screen. If advising purchase/selection, use returned performance; no source-order strength claims.",
+            "Do not ask the user to listen through pages or switch to shop equipment."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "aurora_hat_colored",
+      "origin": "User review: identify 帽子 from rarity-filtered multilingual augment candidates before judging availability; not an equipment query.",
+      "split": "development",
+      "state": {
+        "status": "ok",
+        "scope": "shared_reference",
+        "source": "synthetic match for evaluation",
+        "ageSeconds": 0,
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 300
+        },
+        "activePlayer": {
+          "slot": "order-01"
+        },
+        "players": [
+          {
+            "slot": "order-01",
+            "champion": "Aurora",
+            "team": "ORDER",
+            "isActivePlayer": true,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": [],
+            "championSlug": "aurora"
+          },
+          {
+            "slot": "order-02",
+            "champion": "Garen",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-03",
+            "champion": "Anivia",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-04",
+            "champion": "Yunara",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "order-05",
+            "champion": "Brand",
+            "team": "ORDER",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-01",
+            "champion": "Draven",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-02",
+            "champion": "Katarina",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-03",
+            "champion": "Shyvana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-04",
+            "champion": "Tristana",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          },
+          {
+            "slot": "chaos-05",
+            "champion": "TwistedFate",
+            "team": "CHAOS",
+            "isActivePlayer": false,
+            "scores": {
+              "kills": 0,
+              "deaths": 0,
+              "assists": 0
+            },
+            "items": []
+          }
+        ]
+      },
+      "turns": [
+        {
+          "question": "豆包，我玩阿萝拉，彩色里面能不能选帽子？",
+          "expected": {
+            "allowed_champions": [
+              "aurora"
+            ],
+            "required_tool_names": [
+              "get_mayhem_augments"
+            ],
+            "forbidden_tool_names": [
+              "lookup_game_item",
+              "get_mayhem_build"
+            ],
+            "answer_contains_any": [
+              [
+                "沃格勒特",
+                "乌莉特",
+                "烏莉特",
+                "Wooglet"
+              ]
+            ],
+            "max_answer_chars": 180,
+            "candidate_lookup": {
+              "rarity": "prismatic",
+              "source_rarity": 8,
+              "id": 1156,
+              "locales": [
+                "en_US",
+                "zh_CN",
+                "zh_MY",
+                "zh_TW"
+              ]
+            }
+          },
+          "review_rubric": [
+            "First enumerate this champion's prismatic augments without guessing the nickname/English/ID in tool arguments.",
+            "Resolve 帽子 from returned four-language names to ID1156; use tool evidence before saying it belongs to the pool.",
+            "Candidate eligibility is not proof it is currently offered on screen. If advising purchase/selection, use returned performance; no source-order strength claims.",
+            "Do not ask the user to listen through pages or switch to shop equipment."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incident_zero_popularity_top",
+      "origin": "Reviewed September 6 gameplay failures; paraphrased text, synthetic roster/KDA; public frozen data. Not an audio accuracy test.",
+      "split": "development",
+      "state": {
+        "status": "in_game",
+        "available": true,
+        "source": "synthetic_review_fixture",
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 650
+        },
+        "activePlayer": {
+          "slot": "chaos-02"
+        },
+        "players": [
+          {
+            "slot": "chaos-01",
+            "team": "CHAOS",
+            "champion": "Velkoz",
+            "championSlug": "velkoz",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-02",
+            "team": "CHAOS",
+            "champion": "Mordekaiser",
+            "championSlug": "mordekaiser",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-03",
+            "team": "CHAOS",
+            "champion": "Hecarim",
+            "championSlug": "hecarim",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-04",
+            "team": "CHAOS",
+            "champion": "Zeri",
+            "championSlug": "zeri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-05",
+            "team": "CHAOS",
+            "champion": "Ahri",
+            "championSlug": "ahri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-01",
+            "team": "ORDER",
+            "champion": "Maokai",
+            "championSlug": "maokai",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-02",
+            "team": "ORDER",
+            "champion": "Swain",
+            "championSlug": "swain",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-03",
+            "team": "ORDER",
+            "champion": "Kaisa",
+            "championSlug": "kaisa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-04",
+            "team": "ORDER",
+            "champion": "Jhin",
+            "championSlug": "jhin",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-05",
+            "team": "ORDER",
+            "champion": "Ambessa",
+            "championSlug": "ambessa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          }
+        ]
+      },
+      "turns": [
+        {
+          "question": "豆包，我玩铁男，最强的三个海克斯是什么？",
+          "expected": {
+            "max_answer_chars": 220,
+            "allowed_champions": [
+              "mordekaiser"
+            ],
+            "required_tool_names": [
+              "get_mayhem_augments"
+            ],
+            "positive_popularity_results": true,
+            "answer_not_contains": [
+              "王中王",
+              "花晓之剑",
+              "170"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        },
+        {
+          "question": "王中王不是早就下架了吗？不能把旧条目当成现在能选的。",
+          "expected": {
+            "max_answer_chars": 220,
+            "answer_not_contains": [
+              "确实是当前版本",
+              "当前可用",
+              "掷骰狂人",
+              "珠光莲花",
+              "确实是旧版本"
+            ],
+            "answer_contains_any": [
+              [
+                "不能确认",
+                "无法确认",
+                "不代表",
+                "未确认",
+                "历史",
+                "你说得对",
+                "旧",
+                "不该",
+                "不能保证",
+                "可选性",
+                "没法保证",
+                "无法保证"
+              ]
+            ],
+            "answer_not_regex": [
+              "(?<!不能)(?<!无法)(?<!没法)保证现在还能选"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        },
+        {
+          "question": "我们这边根本没有酒桶，我问的是铁男，重新查一下。",
+          "expected": {
+            "max_answer_chars": 220,
+            "allowed_champions": [
+              "mordekaiser"
+            ],
+            "required_tool_names": [
+              "get_mayhem_augments"
+            ],
+            "positive_popularity_results": true,
+            "answer_not_contains": [
+              "王中王",
+              "花晓之剑",
+              "170"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incident_gold_name_repair_and_tie",
+      "origin": "Reviewed September 6 gameplay failures; paraphrased text, synthetic roster/KDA; public frozen data. Not an audio accuracy test.",
+      "split": "development",
+      "state": {
+        "status": "in_game",
+        "available": true,
+        "source": "synthetic_review_fixture",
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 650
+        },
+        "activePlayer": {
+          "slot": "chaos-02"
+        },
+        "players": [
+          {
+            "slot": "chaos-01",
+            "team": "CHAOS",
+            "champion": "Velkoz",
+            "championSlug": "velkoz",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-02",
+            "team": "CHAOS",
+            "champion": "Mordekaiser",
+            "championSlug": "mordekaiser",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-03",
+            "team": "CHAOS",
+            "champion": "Hecarim",
+            "championSlug": "hecarim",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-04",
+            "team": "CHAOS",
+            "champion": "Zeri",
+            "championSlug": "zeri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-05",
+            "team": "CHAOS",
+            "champion": "Ahri",
+            "championSlug": "ahri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-01",
+            "team": "ORDER",
+            "champion": "Maokai",
+            "championSlug": "maokai",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-02",
+            "team": "ORDER",
+            "champion": "Swain",
+            "championSlug": "swain",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-03",
+            "team": "ORDER",
+            "champion": "Kaisa",
+            "championSlug": "kaisa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-04",
+            "team": "ORDER",
+            "champion": "Jhin",
+            "championSlug": "jhin",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-05",
+            "team": "ORDER",
+            "champion": "Ambessa",
+            "championSlug": "ambessa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          }
+        ]
+      },
+      "turns": [
+        {
+          "question": "豆包，我玩铁男，难学射手法师还是坦克引擎？金色的海克斯。",
+          "expected": {
+            "max_answer_chars": 220,
+            "allowed_champions": [
+              "mordekaiser"
+            ],
+            "required_tool_names": [
+              "get_mayhem_augments"
+            ],
+            "observed_augment_ids": [
+              1129,
+              1353
+            ],
+            "answer_contains": [
+              "81.09"
+            ],
+            "answer_contains_any": [
+              [
+                "一样",
+                "相同",
+                "打平",
+                "持平",
+                "都是",
+                "平手"
+              ]
+            ],
+            "answer_not_contains": [
+              "没有这个强化",
+              "不存在",
+              "双抗",
+              "法术伤害",
+              "想肉",
+              "听成射手法师"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        },
+        {
+          "question": "铁男选射手法师，射手法师是一个完整名字。不是难学射手法师。",
+          "expected": {
+            "max_answer_chars": 220,
+            "allowed_champions": [
+              "mordekaiser"
+            ],
+            "forbidden_augment_queries": [
+              "射手",
+              "法师",
+              "难学射手法师"
+            ],
+            "answer_not_contains": [
+              "不存在",
+              "确认一下名字",
+              "双抗",
+              "法术伤害",
+              "想肉",
+              "听成射手法师"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        },
+        {
+          "question": "那神射法师和坦克引擎到底哪个更好？",
+          "expected": {
+            "max_answer_chars": 220,
+            "allowed_champions": [
+              "mordekaiser"
+            ],
+            "answer_contains": [
+              "81.09"
+            ],
+            "answer_contains_any": [
+              [
+                "一样",
+                "相同",
+                "打平",
+                "持平",
+                "都是",
+                "平手"
+              ]
+            ],
+            "answer_not_contains": [
+              "没查到",
+              "没有数据",
+              "双抗",
+              "法术伤害",
+              "想肉",
+              "听成射手法师"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        },
+        {
+          "question": "刚才不是两个都查到了？请重新核对两个数据。",
+          "expected": {
+            "max_answer_chars": 220,
+            "allowed_champions": [
+              "mordekaiser"
+            ],
+            "required_tool_names": [
+              "get_mayhem_augments"
+            ],
+            "observed_augment_ids": [
+              1129,
+              1353
+            ],
+            "answer_contains": [
+              "81.09"
+            ],
+            "answer_not_contains": [
+              "没查到",
+              "没有数据",
+              "双抗",
+              "法术伤害",
+              "想肉",
+              "听成射手法师"
+            ],
+            "allowed_augment_ids": [
+              1129,
+              1353
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incident_overall_winrate",
+      "origin": "Reviewed September 6 gameplay failures; paraphrased text, synthetic roster/KDA; public frozen data. Not an audio accuracy test.",
+      "split": "development",
+      "state": {
+        "status": "in_game",
+        "available": true,
+        "source": "synthetic_review_fixture",
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 650
+        },
+        "activePlayer": {
+          "slot": "chaos-02"
+        },
+        "players": [
+          {
+            "slot": "chaos-01",
+            "team": "CHAOS",
+            "champion": "Velkoz",
+            "championSlug": "velkoz",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-02",
+            "team": "CHAOS",
+            "champion": "Mordekaiser",
+            "championSlug": "mordekaiser",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-03",
+            "team": "CHAOS",
+            "champion": "Hecarim",
+            "championSlug": "hecarim",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-04",
+            "team": "CHAOS",
+            "champion": "Zeri",
+            "championSlug": "zeri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-05",
+            "team": "CHAOS",
+            "champion": "Ahri",
+            "championSlug": "ahri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-01",
+            "team": "ORDER",
+            "champion": "Maokai",
+            "championSlug": "maokai",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-02",
+            "team": "ORDER",
+            "champion": "Swain",
+            "championSlug": "swain",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-03",
+            "team": "ORDER",
+            "champion": "Kaisa",
+            "championSlug": "kaisa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-04",
+            "team": "ORDER",
+            "champion": "Jhin",
+            "championSlug": "jhin",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-05",
+            "team": "ORDER",
+            "champion": "Ambessa",
+            "championSlug": "ambessa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          }
+        ]
+      },
+      "turns": [
+        {
+          "question": "用新数据库查一下卡莎这个英雄的整体胜率，不考虑装备和强化。",
+          "expected": {
+            "max_answer_chars": 220,
+            "required_tool_names": [
+              "get_arammeta_stats"
+            ],
+            "required_argument_values": {
+              "get_arammeta_stats": {
+                "kind": "champion"
+              }
+            },
+            "answer_contains": [
+              "46.01"
+            ],
+            "answer_not_contains": [
+              "40.58",
+              "49.14",
+              "48.47"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        },
+        {
+          "question": "这个是整个英雄的统计，还是某件装备的统计？",
+          "expected": {
+            "max_answer_chars": 220,
+            "answer_contains_any": [
+              [
+                "整体",
+                "整个英雄",
+                "总体"
+              ]
+            ],
+            "answer_not_contains": [
+              "40.58"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        },
+        {
+          "question": "这个胜率是从OPGG来的吗？",
+          "expected": {
+            "max_answer_chars": 220,
+            "answer_contains_any": [
+              [
+                "arammeta",
+                "ARAM",
+                "新数据库"
+              ]
+            ],
+            "answer_not_contains": [
+              "来自OP.GG",
+              "来自OPGG"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incident_team_tier_count",
+      "origin": "Reviewed September 6 gameplay failures; paraphrased text, synthetic roster/KDA; public frozen data. Not an audio accuracy test.",
+      "split": "development",
+      "state": {
+        "status": "in_game",
+        "available": true,
+        "source": "synthetic_review_fixture",
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 650
+        },
+        "activePlayer": {
+          "slot": "chaos-02"
+        },
+        "players": [
+          {
+            "slot": "chaos-01",
+            "team": "CHAOS",
+            "champion": "Velkoz",
+            "championSlug": "velkoz",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-02",
+            "team": "CHAOS",
+            "champion": "Mordekaiser",
+            "championSlug": "mordekaiser",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-03",
+            "team": "CHAOS",
+            "champion": "Hecarim",
+            "championSlug": "hecarim",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-04",
+            "team": "CHAOS",
+            "champion": "Zeri",
+            "championSlug": "zeri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-05",
+            "team": "CHAOS",
+            "champion": "Ahri",
+            "championSlug": "ahri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-01",
+            "team": "ORDER",
+            "champion": "Maokai",
+            "championSlug": "maokai",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-02",
+            "team": "ORDER",
+            "champion": "Swain",
+            "championSlug": "swain",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-03",
+            "team": "ORDER",
+            "champion": "Kaisa",
+            "championSlug": "kaisa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-04",
+            "team": "ORDER",
+            "champion": "Jhin",
+            "championSlug": "jhin",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-05",
+            "team": "ORDER",
+            "champion": "Ambessa",
+            "championSlug": "ambessa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          }
+        ]
+      },
+      "turns": [
+        {
+          "question": "豆包，根据两边所有英雄的tier，直接说我们这边还是对面更容易赢，并核对一下数量。",
+          "expected": {
+            "max_answer_chars": 220,
+            "required_tool_names": [
+              "get_mayhem_team_comparison"
+            ],
+            "answer_not_contains": [
+              "ORDER",
+              "CHAOS",
+              "对面更容易赢",
+              "对面更强"
+            ],
+            "answer_contains_any": [
+              [
+                "你们这边更强",
+                "你们这边更好",
+                "你们这边更容易",
+                "你们这边评级更强",
+                "你们这边更占优",
+                "你们这边的阵容更强"
+              ]
+            ],
+            "answer_contains": [
+              "T4"
+            ],
+            "team_verdict": "your_team"
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        },
+        {
+          "question": "铁男是T4，你刚才有把他算进T3吗？对面五个也都数上。",
+          "expected": {
+            "max_answer_chars": 220,
+            "answer_contains": [
+              "T4",
+              "T5"
+            ],
+            "answer_not_contains": [
+              "ORDER",
+              "CHAOS"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incident_fresh_kda_roast",
+      "origin": "Reviewed September 6 gameplay failures; paraphrased text, synthetic roster/KDA; public frozen data. Not an audio accuracy test.",
+      "split": "development",
+      "state": {
+        "status": "in_game",
+        "available": true,
+        "source": "synthetic_review_fixture",
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 650
+        },
+        "activePlayer": {
+          "slot": "chaos-02"
+        },
+        "players": [
+          {
+            "slot": "chaos-01",
+            "team": "CHAOS",
+            "champion": "Velkoz",
+            "championSlug": "velkoz",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-02",
+            "team": "CHAOS",
+            "champion": "Mordekaiser",
+            "championSlug": "mordekaiser",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-03",
+            "team": "CHAOS",
+            "champion": "Hecarim",
+            "championSlug": "hecarim",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-04",
+            "team": "CHAOS",
+            "champion": "Zeri",
+            "championSlug": "zeri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-05",
+            "team": "CHAOS",
+            "champion": "Ahri",
+            "championSlug": "ahri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-01",
+            "team": "ORDER",
+            "champion": "Maokai",
+            "championSlug": "maokai",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-02",
+            "team": "ORDER",
+            "champion": "Swain",
+            "championSlug": "swain",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-03",
+            "team": "ORDER",
+            "champion": "Kaisa",
+            "championSlug": "kaisa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-04",
+            "team": "ORDER",
+            "champion": "Jhin",
+            "championSlug": "jhin",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-05",
+            "team": "ORDER",
+            "champion": "Ambessa",
+            "championSlug": "ambessa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          }
+        ]
+      },
+      "turns": [
+        {
+          "question": "豆包，现在谁最没打出英雄应该有的水平？查最新进展、KDA和装备再点名。",
+          "expected": {
+            "max_answer_chars": 220,
+            "required_tool_names": [
+              "get_live_game_state",
+              "get_mayhem_team_comparison"
+            ],
+            "answer_contains_any": [
+              [
+                "人马",
+                "赫卡里姆"
+              ]
+            ],
+            "answer_contains": [
+              "4/9/17",
+              "T2"
+            ],
+            "answer_not_contains": [
+              "经济最高",
+              "经济最低",
+              "都死了五次",
+              "都死了5次",
+              "跨服"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ],
+          "tool_state": {
+            "status": "in_game",
+            "available": true,
+            "source": "synthetic_review_fixture",
+            "game": {
+              "isAramMayhem": true,
+              "gameTimeSeconds": 800
+            },
+            "activePlayer": {
+              "slot": "chaos-02"
+            },
+            "players": [
+              {
+                "slot": "chaos-01",
+                "team": "CHAOS",
+                "champion": "Velkoz",
+                "championSlug": "velkoz",
+                "scores": {
+                  "kills": 2,
+                  "deaths": 2,
+                  "assists": 12
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              },
+              {
+                "slot": "chaos-02",
+                "team": "CHAOS",
+                "champion": "Mordekaiser",
+                "championSlug": "mordekaiser",
+                "scores": {
+                  "kills": 8,
+                  "deaths": 8,
+                  "assists": 13
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              },
+              {
+                "slot": "chaos-03",
+                "team": "CHAOS",
+                "champion": "Hecarim",
+                "championSlug": "hecarim",
+                "scores": {
+                  "kills": 4,
+                  "deaths": 9,
+                  "assists": 17
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              },
+              {
+                "slot": "chaos-04",
+                "team": "CHAOS",
+                "champion": "Zeri",
+                "championSlug": "zeri",
+                "scores": {
+                  "kills": 3,
+                  "deaths": 3,
+                  "assists": 12
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              },
+              {
+                "slot": "chaos-05",
+                "team": "CHAOS",
+                "champion": "Ahri",
+                "championSlug": "ahri",
+                "scores": {
+                  "kills": 9,
+                  "deaths": 2,
+                  "assists": 16
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              },
+              {
+                "slot": "order-01",
+                "team": "ORDER",
+                "champion": "Maokai",
+                "championSlug": "maokai",
+                "scores": {
+                  "kills": 3,
+                  "deaths": 3,
+                  "assists": 12
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              },
+              {
+                "slot": "order-02",
+                "team": "ORDER",
+                "champion": "Swain",
+                "championSlug": "swain",
+                "scores": {
+                  "kills": 3,
+                  "deaths": 3,
+                  "assists": 12
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              },
+              {
+                "slot": "order-03",
+                "team": "ORDER",
+                "champion": "Kaisa",
+                "championSlug": "kaisa",
+                "scores": {
+                  "kills": 3,
+                  "deaths": 3,
+                  "assists": 12
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              },
+              {
+                "slot": "order-04",
+                "team": "ORDER",
+                "champion": "Jhin",
+                "championSlug": "jhin",
+                "scores": {
+                  "kills": 3,
+                  "deaths": 3,
+                  "assists": 12
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              },
+              {
+                "slot": "order-05",
+                "team": "ORDER",
+                "champion": "Ambessa",
+                "championSlug": "ambessa",
+                "scores": {
+                  "kills": 3,
+                  "deaths": 3,
+                  "assists": 12
+                },
+                "items": [
+                  {
+                    "id": 1001,
+                    "name": "Boots"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "question": "大眼2/2/12也是死了五次吗？",
+          "expected": {
+            "max_answer_chars": 220,
+            "answer_contains_any": [
+              [
+                "两次",
+                "2次",
+                "两回"
+              ]
+            ],
+            "answer_not_contains": [
+              "都死了五次",
+              "都死了5次"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incident_chatter_does_not_invent_match_claims",
+      "origin": "Reviewed September 6 gameplay failures; paraphrased text, synthetic roster/KDA; public frozen data. Not an audio accuracy test.",
+      "split": "development",
+      "state": {
+        "status": "in_game",
+        "available": true,
+        "source": "synthetic_review_fixture",
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 650
+        },
+        "activePlayer": {
+          "slot": "chaos-02"
+        },
+        "players": [
+          {
+            "slot": "chaos-01",
+            "team": "CHAOS",
+            "champion": "Velkoz",
+            "championSlug": "velkoz",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-02",
+            "team": "CHAOS",
+            "champion": "Mordekaiser",
+            "championSlug": "mordekaiser",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-03",
+            "team": "CHAOS",
+            "champion": "Hecarim",
+            "championSlug": "hecarim",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-04",
+            "team": "CHAOS",
+            "champion": "Zeri",
+            "championSlug": "zeri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-05",
+            "team": "CHAOS",
+            "champion": "Ahri",
+            "championSlug": "ahri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-01",
+            "team": "ORDER",
+            "champion": "Maokai",
+            "championSlug": "maokai",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-02",
+            "team": "ORDER",
+            "champion": "Swain",
+            "championSlug": "swain",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-03",
+            "team": "ORDER",
+            "champion": "Kaisa",
+            "championSlug": "kaisa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-04",
+            "team": "ORDER",
+            "champion": "Jhin",
+            "championSlug": "jhin",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-05",
+            "team": "ORDER",
+            "champion": "Ambessa",
+            "championSlug": "ambessa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          }
+        ]
+      },
+      "turns": [
+        {
+          "question": "还有点名环节，我操。",
+          "expected": {
+            "max_answer_chars": 220,
+            "allowed_tool_names": [],
+            "answer_not_contains": [
+              "经济最高",
+              "经济最低",
+              "胜率惨淡"
+            ],
+            "answer_not_regex": [
+              "\\d+/\\d+/\\d+",
+              "T[0-5]",
+              "想看看",
+              "你是想聊"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        },
+        {
+          "question": "ba... Esatto... 我刚才没在问你游戏数据。",
+          "expected": {
+            "max_answer_chars": 220,
+            "allowed_tool_names": [],
+            "answer_not_contains": [
+              "T5",
+              "最强强化",
+              "胜率"
+            ],
+            "answer_not_regex": [
+              "\\d+/\\d+/\\d+",
+              "T[0-5]",
+              "想看看",
+              "你是想聊"
+            ]
+          },
+          "review_rubric": [
+            "Use tool evidence and current question; no invented availability, ID, win rate or match statistic."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "incident_zeri_sword_hero_correction",
+      "origin": "Latest gameplay: 拔剑 question answered as Ryze hat then Zeri Double Tap. Text paraphrase; synthetic match.",
+      "split": "development",
+      "state": {
+        "status": "in_game",
+        "available": true,
+        "source": "synthetic_review_fixture",
+        "game": {
+          "isAramMayhem": true,
+          "gameTimeSeconds": 650
+        },
+        "activePlayer": {
+          "slot": "chaos-02"
+        },
+        "players": [
+          {
+            "slot": "chaos-01",
+            "team": "CHAOS",
+            "champion": "Velkoz",
+            "championSlug": "velkoz",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-02",
+            "team": "CHAOS",
+            "champion": "Ryze",
+            "championSlug": "ryze",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-03",
+            "team": "CHAOS",
+            "champion": "Hecarim",
+            "championSlug": "hecarim",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-04",
+            "team": "CHAOS",
+            "champion": "Zeri",
+            "championSlug": "zeri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "chaos-05",
+            "team": "CHAOS",
+            "champion": "Ahri",
+            "championSlug": "ahri",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-01",
+            "team": "ORDER",
+            "champion": "Maokai",
+            "championSlug": "maokai",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-02",
+            "team": "ORDER",
+            "champion": "Swain",
+            "championSlug": "swain",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-03",
+            "team": "ORDER",
+            "champion": "Kaisa",
+            "championSlug": "kaisa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-04",
+            "team": "ORDER",
+            "champion": "Jhin",
+            "championSlug": "jhin",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          },
+          {
+            "slot": "order-05",
+            "team": "ORDER",
+            "champion": "Ambessa",
+            "championSlug": "ambessa",
+            "scores": {
+              "kills": 3,
+              "deaths": 3,
+              "assists": 12
+            },
+            "items": [
+              {
+                "id": 1001,
+                "name": "Boots"
+              }
+            ]
+          }
+        ]
+      },
+      "turns": [
+        {
+          "question": "豆包，我玩瑞兹，Eureka和Mad Scientist哪个强？",
+          "expected": {
+            "max_answer_chars": 200,
+            "allowed_champions": [
+              "ryze"
+            ],
+            "required_tool_names": [
+              "get_mayhem_augments"
+            ],
+            "answer_contains": [
+              "92.83",
+              "83.64"
+            ],
+            "answer_contains_any": [
+              [
+                "MadScientist",
+                "科学狂人",
+                "疯狂科学家"
+              ]
+            ]
+          },
+          "review_rubric": [
+            "Retain the actual requested augment across hero/speaker corrections; never substitute hats or another recommendation. Exact localized name mapping comes from tool evidence."
+          ]
+        },
+        {
+          "question": "可以选拔剑这个棱彩海克斯吗？",
+          "expected": {
+            "max_answer_chars": 200,
+            "allowed_champions": [
+              "ryze"
+            ],
+            "required_tool_names": [
+              "get_mayhem_augments"
+            ],
+            "answer_not_contains": [
+              "帽子",
+              "DoubleTap",
+              "双发快射",
+              "大棒",
+              "中娅",
+              "要看看",
+              "踢踏舞",
+              "巨人杀手"
+            ],
+            "required_argument_values": {
+              "get_mayhem_augments": {
+                "query": "拔剑",
+                "rarity": "prismatic"
+              }
+            },
+            "answer_contains_any": [
+              [
+                "没查到",
+                "没有数据",
+                "没找到"
+              ]
+            ]
+          },
+          "review_rubric": [
+            "Retain the actual requested augment across hero/speaker corrections; never substitute hats or another recommendation. Exact localized name mapping comes from tool evidence.",
+            "Frozen Ryze source has no Draw Your Sword row: correct exact lookup and missing-statistics answer are valid; absence is not proof of ineligibility."
+          ]
+        },
+        {
+          "question": "不是瑞兹，是泽丽。",
+          "expected": {
+            "max_answer_chars": 200,
+            "allowed_champions": [
+              "zeri"
+            ],
+            "required_tool_names": [
+              "get_mayhem_augments"
+            ],
+            "observed_augment_ids": [
+              1134
+            ],
+            "answer_not_contains": [
+              "帽子",
+              "DoubleTap",
+              "双发快射",
+              "大棒",
+              "中娅",
+              "要看看",
+              "踢踏舞",
+              "巨人杀手"
+            ],
+            "required_argument_values": {
+              "get_mayhem_augments": {
+                "query": "拔剑",
+                "rarity": "prismatic"
+              }
+            }
+          },
+          "review_rubric": [
+            "Retain the actual requested augment across hero/speaker corrections; never substitute hats or another recommendation. Exact localized name mapping comes from tool evidence."
+          ]
+        },
+        {
+          "question": "我问的是捉妖手册，不是帽子，也不是双发快射。",
+          "expected": {
+            "max_answer_chars": 200,
+            "allowed_champions": [
+              "zeri"
+            ],
+            "answer_contains_any": [
+              [
+                "DrawYourSword",
+                "拔剑"
+              ]
+            ],
+            "answer_not_contains": [
+              "立刻拿到大棒",
+              "暴击可以触发两次",
+              "能加很多法强",
+              "踢踏舞",
+              "巨人杀手",
+              "Spellbook",
+              "法术书",
+              "法术宝典"
+            ],
+            "identity_confirmation_allowed": true,
+            "answer_contains": [
+              "88.9"
+            ],
+            "answer_language": "zh"
+          },
+          "review_rubric": [
+            "User confirmed 捉妖手册 was ASR for spoken Draw Your Sword. With prior verified 拔剑 identity, propose the contextual repair and preserve Zeri; no permanent global alias."
+          ]
+        }
+      ]
+    }
+  ],
+  "grading_note": "Development rubric strengthened after initial execution; regrade preserved raw answers separately. Never claim rule-pass equals semantic success."
+}

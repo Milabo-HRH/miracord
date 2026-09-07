@@ -17,6 +17,10 @@ htmlcov/
 
 # Logs
 logs/
+# Local operational handoff contains deployment identifiers and private sessions.
+/HANDOFF.md
+# Optional downloaded experimental model bundle (install separately).
+/assets/wakeword_models/sherpa-onnx-kws-zipformer-zh-en-3M-2025-12-20/
 
 # Local audio-routing diagnostics
 /audio-route-probe-*.json
@@ -30,6 +34,7 @@ logs/
 
 # Environment
 .env
+/.secrets/
 
 # Development
 docs/

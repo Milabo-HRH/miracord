@@ -1,0 +1,32 @@
+# Standalone optional backend environment. Do not combine with requirements.txt
+# (the legacy environment uses google-genai <2). Common bot dependencies below.
+# Discord Bot Framework
+discord.py>=2.6.0,<3.0
+discord-ext-voice-recv==0.5.2a179
+davey>=0.1.6,<1.0
+PyNaCl>=1.5.0,<2.0
+
+# Configuration & Environment
+python-dotenv>=1.0.0,<2.0
+mcp>=1.25.0,<2.0
+
+# Audio Processing
+pydub>=0.25.0,<1.0
+sounddevice>=0.5.0,<1.0
+audioop-lts>=0.2.0,<1.0; python_version >= "3.13"
+websockets>=15.0.0,<16.0
+
+# AI Service Providers
+openai>=2.0.0,<3.0
+
+# Wake Word & Voice Activity Detection
+openwakeword>=0.4.0,<1.0
+sherpa-onnx>=1.12.20,<2.0
+sentencepiece>=0.2.0,<1.0
+pypinyin>=0.50.0,<1.0
+webrtcvad-wheels>=2.0.0,<3.0
+
+# Cascaded voice backend
+pipecat-ai[google,fish,silero]==1.8.1
+google-genai==2.22.0
+funasr==1.4.14
