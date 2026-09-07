@@ -58,12 +58,11 @@ class GrokEventHandlerAdapter:
             "response.output_audio_transcript.delta",
             "response.audio_transcript.delta",
         }:
-            if event.get("delta"):
-                logger.debug("Grok transcript: %s", event["delta"])
+            # Text belongs only in the explicitly enabled diagnostic capture.
             return
 
         if event_type == "error":
-            logger.error("xAI Realtime error event: %s", event.get("error", event))
+            logger.error("xAI Realtime error code: %s", (event.get("error") or {}).get("code", "unknown"))
 
     async def _handle_audio_delta(self, event: Dict[str, Any]) -> None:
         if not self._active_response_id:
