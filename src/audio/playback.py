@@ -15,6 +15,29 @@ from src.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
+class _PlayoutSource(discord.AudioSource):
+    """Count PCM actually consumed by Discord, not bytes queued for FFmpeg."""
+
+    def __init__(self, source, stream_id: str, positions: dict[str, float]) -> None:
+        self.source = source
+        self.stream_id = stream_id
+        self.positions = positions
+        self.positions[stream_id] = 0.0
+
+    def read(self) -> bytes:
+        data = self.source.read()
+        # FFmpeg output is Discord's 48 kHz, stereo, signed 16-bit PCM.
+        self.positions[self.stream_id] += len(data) * 1000 / (48000 * 2 * 2)
+        return data
+
+    def is_opus(self) -> bool:
+        return False
+
+    def cleanup(self) -> None:
+        # The stream monitor owns the wrapped FFmpeg process and cleans it up.
+        pass
+
+
 @dataclass
 class _PlaybackStream:
     """Encapsulates resources for a single audio playback instance."""
@@ -44,6 +67,7 @@ class AudioPlaybackManager:
         self._current_stream_id: Optional[str] = None
         self._current_response_format: Optional[Tuple[int, int]] = None
         self._eos_queued_for_streams: set[str] = set()
+        self._playout_positions: dict[str, float] = {}
         self._manager_task: Optional[asyncio.Task] = None
         self._monitor_task: Optional[asyncio.Task] = None
         logger.debug(f"AudioPlaybackManager initialized for guild {self.guild.id}.")
@@ -71,6 +95,16 @@ class AudioPlaybackManager:
         if self._current_stream_id:
             return self._current_stream_id.split("-", 1)[0]
         return None
+
+    def get_played_ms(self, stream_id: str) -> int:
+        """Return Discord's consumed-audio position, including a just-stopped stream."""
+        return int(self._playout_positions.get(stream_id, 0))
+
+    def interrupt_audio_stream(self) -> None:
+        """Release the input gate immediately and ask the manager to stop playback."""
+        self._current_stream_id = None
+        self._current_response_format = None
+        self._playback_control_event.set()
 
     async def play_cue(self, cue_name: str) -> None:
         """
@@ -213,16 +247,19 @@ class AudioPlaybackManager:
 
     async def _cleanup_playback_stream(self, stream: _PlaybackStream) -> None:
         """Safely cleans up all resources for a given _PlaybackStream instance."""
+        if self._current_stream_id == stream.stream_id:
+            self._current_stream_id = None
+            self._current_response_format = None
+        # After barge-in, Discord no longer drains FFmpeg's stdout. Kill FFmpeg
+        # before waiting for the feeder: its buffered write/close may otherwise
+        # wait forever on a full pipe. Process cleanup must not block the loop.
+        await asyncio.to_thread(stream.ffmpeg_audio_source.cleanup)
         if stream.feeder_task and not stream.feeder_task.done():
             stream.feeder_task.cancel()
             try:
                 await stream.feeder_task
             except asyncio.CancelledError:
                 pass
-        stream.ffmpeg_audio_source.cleanup()
-        if self._current_stream_id == stream.stream_id:
-            self._current_stream_id = None
-            self._current_response_format = None
         self._eos_queued_for_streams.discard(stream.stream_id)
         logger.debug(f"Cleaned up resources for stream '{stream.stream_id}'.")
 
@@ -232,7 +269,11 @@ class AudioPlaybackManager:
         """A self-contained task to play one audio stream and clean up."""
         try:
             stream.feeder_task = asyncio.create_task(self._feed_audio_to_pipe(stream))
-            voice_client.play(stream.ffmpeg_audio_source)
+            if len(self._playout_positions) >= 32:
+                self._playout_positions.pop(next(iter(self._playout_positions)))
+            voice_client.play(_PlayoutSource(
+                stream.ffmpeg_audio_source, stream.stream_id, self._playout_positions
+            ))
             while voice_client.is_playing() or voice_client.is_paused():
                 await asyncio.sleep(0.1)
         except asyncio.CancelledError:
@@ -248,7 +289,14 @@ class AudioPlaybackManager:
                 exc_info=True,
             )
         finally:
-            await self._cleanup_playback_stream(stream)
+            cleanup = asyncio.create_task(self._cleanup_playback_stream(stream))
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                # A replacement stream can cancel a monitor already cleaning up.
+                # Finish releasing its pipes before starting the next reader.
+                await cleanup
+                raise
             logger.info(
                 f"Finished playback for stream '{stream.stream_id}' in guild {self.guild.id}."
             )
