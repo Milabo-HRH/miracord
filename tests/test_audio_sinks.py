@@ -14,6 +14,7 @@ from discord.ext import voice_recv
 
 from src.audio.sinks import ManualControlSink, VADAnalyzer, CleanupMetrics
 from src.bot.state import BotState, BotStateEnum, RecordingMethod
+from src.config.config import Config
 from src.exceptions import SessionConsistencyError
 
 
@@ -402,6 +403,24 @@ class TestManualControlSink:
         # Should not raise exception
         manual_control_sink.write(user, voice_data)
 
+    def test_recording_keeps_new_participant_wake_detector_active(
+        self, manual_control_sink
+    ):
+        user = MagicMock(spec=discord.User)
+        user.id = 456
+        voice_data = MagicMock(spec=voice_recv.VoiceData)
+        voice_data.pcm = b"test_audio_data"
+        manual_control_sink._bot_state.current_state = BotStateEnum.RECORDING
+        manual_control_sink._bot_state.is_authorized.return_value = False
+        manual_control_sink._bot_state.is_active_participant.return_value = False
+        manual_control_sink._process_standby_audio = MagicMock()
+
+        manual_control_sink.write(user, voice_data)
+
+        manual_control_sink._process_standby_audio.assert_called_once_with(
+            user, voice_data
+        )
+
     def test_write_session_id_mismatch_prevention(self, manual_control_sink):
         """Test write method auto-updates session ID to prevent contamination."""
         user = MagicMock(spec=discord.User)
@@ -417,6 +436,183 @@ class TestManualControlSink:
 
         # Should have auto-updated the session ID to prevent contamination
         assert manual_control_sink._active_session_id == 200
+
+    def test_active_participant_requires_sustained_speech(self, manual_control_sink):
+        user = MagicMock(spec=discord.User)
+        user.id = 123
+        voice_data = MagicMock(spec=voice_recv.VoiceData)
+        voice_data.pcm = b"\x01\x00" * (Config.VAD_PROCESSING_CHUNK // 2)
+        manual_control_sink._on_active_speech_detected = AsyncMock()
+        manual_control_sink._bot_state.current_state = BotStateEnum.STANDBY
+        manual_control_sink._bot_state.is_active_participant.return_value = True
+        manual_control_sink._audio_processor.convert_sync.return_value = (
+            b"\x01\x00" * 640
+        )
+        manual_control_sink._active_speech_vads[user.id] = MagicMock()
+        manual_control_sink._active_speech_vads[user.id].is_speech.return_value = True
+
+        manual_control_sink.write(user, voice_data)
+
+        manual_control_sink._loop.call_soon_threadsafe.assert_not_called()
+
+        for _ in range(5):
+            manual_control_sink.write(user, voice_data)
+
+        manual_control_sink._loop.call_soon_threadsafe.assert_called_once()
+        assert user.id in manual_control_sink._active_speech_pending
+
+    def test_active_participant_background_noise_does_not_barge_in(
+        self, manual_control_sink
+    ):
+        user = MagicMock(spec=discord.User)
+        user.id = 123
+        voice_data = MagicMock(spec=voice_recv.VoiceData)
+        voice_data.pcm = b"\x00" * Config.VAD_PROCESSING_CHUNK
+        manual_control_sink._on_active_speech_detected = AsyncMock()
+        manual_control_sink._bot_state.current_state = BotStateEnum.STANDBY
+        manual_control_sink._bot_state.is_active_participant.return_value = True
+        manual_control_sink._audio_processor.convert_sync.return_value = b"\x00" * 1280
+        manual_control_sink._active_speech_vads[user.id] = MagicMock()
+        manual_control_sink._active_speech_vads[user.id].is_speech.return_value = False
+
+        for _ in range(20):
+            manual_control_sink.write(user, voice_data)
+
+        manual_control_sink._loop.call_soon_threadsafe.assert_not_called()
+        assert user.id not in manual_control_sink._active_speech_pending
+
+    @pytest.mark.parametrize("initial_state", [BotStateEnum.STANDBY, BotStateEnum.RECORDING])
+    def test_continuous_speech_is_not_a_new_interruption(
+        self, manual_control_sink, initial_state
+    ):
+        """The same utterance must not re-trigger when the bot begins playback."""
+        sink = manual_control_sink
+        user = MagicMock(id=123)
+        data = MagicMock(pcm=b"\x01\x00" * (Config.VAD_PROCESSING_CHUNK // 2))
+        sink._on_active_speech_detected = AsyncMock()
+        sink._bot_state.current_state = initial_state
+        sink._bot_state.is_active_participant.return_value = True
+        sink._bot_state.is_authorized.return_value = False
+        sink._audio_processor.convert_sync.return_value = b"\x01\x00" * 640
+        sink._active_speech_vads[user.id] = MagicMock()
+        sink._active_speech_vads[user.id].is_speech.return_value = True
+        with patch("src.audio.sinks.time.monotonic", return_value=10.0) as clock:
+            for index in range(120):
+                clock.return_value = 10.0 + index * 0.02
+                if index == 30:
+                    sink._bot_state.current_state = BotStateEnum.STANDBY
+                # The notification finishes, but this speaker never fell silent.
+                sink._active_speech_pending.discard(user.id)
+                sink.write(user, data)
+        expected = 1 if initial_state == BotStateEnum.STANDBY else 0
+        assert sink._loop.call_soon_threadsafe.call_count == expected
+
+    @pytest.mark.parametrize("rtp_gap", [True, False])
+    def test_new_utterance_rearms_one_user_without_resetting_teammate(
+        self, manual_control_sink, rtp_gap
+    ):
+        """Both explicit silence and Discord packet gaps permit the next turn."""
+        sink = manual_control_sink
+        users = [MagicMock(id=123), MagicMock(id=456)]
+        data = MagicMock(pcm=b"\x01\x00" * (Config.VAD_PROCESSING_CHUNK // 2))
+        sink._on_active_speech_detected = AsyncMock()
+        sink._bot_state.current_state = BotStateEnum.STANDBY
+        sink._bot_state.is_active_participant.return_value = True
+        sink._audio_processor.convert_sync.return_value = b"\x01\x00" * 640
+        for user in users:
+            sink._active_speech_vads[user.id] = MagicMock()
+            sink._active_speech_vads[user.id].is_speech.return_value = True
+        with patch("src.audio.sinks.time.monotonic", return_value=10.0) as clock:
+            for index in range(10):
+                clock.return_value = 10.0 + index * 0.04
+                for user in users:
+                    sink.write(user, data)
+            assert sink._loop.call_soon_threadsafe.call_count == 2
+            sink._active_speech_pending.clear()
+            for index in range(30):
+                clock.return_value = 10.4 + index * 0.04
+                sink.write(users[1], data)
+                if not rtp_gap:
+                    sink._active_speech_vads[123].is_speech.return_value = False
+                    sink.write(users[0], data)
+            sink._active_speech_vads[123].is_speech.return_value = True
+            for index in range(10):
+                clock.return_value = 11.6 + index * 0.04
+                for user in users:
+                    sink.write(user, data)
+        assert sink._loop.call_soon_threadsafe.call_count == 3
+
+    @pytest.mark.asyncio
+    async def test_delayed_onset_does_not_interrupt_a_new_session(self, manual_control_sink):
+        """A queued callback from the previous turn must not cancel a later reply."""
+        sink = manual_control_sink
+        user = MagicMock(id=123)
+        sink._on_active_speech_detected = AsyncMock()
+        sink._bot_state.current_session_id = 101
+        sink._active_speech_pending.add(user.id)
+        await sink._notify_active_speech_detected(user, session_id=100)
+        sink._on_active_speech_detected.assert_not_awaited()
+        assert user.id not in sink._active_speech_pending
+        await sink._notify_active_speech_detected(user, session_id=101)
+        sink._on_active_speech_detected.assert_awaited_once_with(user)
+
+    def test_wake_word_is_finalized_after_discord_audio_gap(
+        self, manual_control_sink
+    ):
+        user = MagicMock(spec=discord.User)
+        user.id = 123
+        model_name = Config.WAKE_WORD_MODEL_PATH.stem
+        detector = manual_control_sink._detectors[user.id]
+        detector.predict.return_value = {model_name: 1.0}
+        manual_control_sink._wakeword_users[user.id] = user
+        manual_control_sink._wakeword_last_audio_at[user.id] = 10.0
+        manual_control_sink._wakeword_silence_chunks_sent[user.id] = 0
+
+        manual_control_sink._finalize_wake_words_during_audio_gaps(now=10.4)
+
+        detector.predict.assert_called_once()
+        manual_control_sink._loop.call_soon_threadsafe.assert_called_once()
+        assert user.id not in manual_control_sink._wakeword_last_audio_at
+
+    def test_unmatched_audio_gap_preserves_keyword_decoder_context(
+        self, manual_control_sink
+    ):
+        user = MagicMock(spec=discord.User)
+        user.id = 123
+        detector = manual_control_sink._detectors[user.id]
+        detector.predict.return_value = {Config.WAKE_WORD_MODEL_PATH.stem: 0.0}
+        manual_control_sink._wakeword_users[user.id] = user
+        manual_control_sink._wakeword_last_audio_at[user.id] = 10.0
+        manual_control_sink._wakeword_silence_chunks_sent[user.id] = 5
+        manual_control_sink._user_audio_buffers[user.id].extend(b"partial")
+        manual_control_sink._ww_resampled_buffers[user.id].extend(b"phrase")
+
+        manual_control_sink._finalize_wake_words_during_audio_gaps(now=10.4)
+
+        detector.reset.assert_not_called()
+        assert manual_control_sink._user_audio_buffers[user.id] == b"partial"
+        assert manual_control_sink._ww_resampled_buffers[user.id] == b"phrase"
+        assert user.id not in manual_control_sink._wakeword_last_audio_at
+
+    def test_turn_cleanup_preserves_other_users_wake_word_state(
+        self, manual_control_sink
+    ):
+        other_user_id = 456
+        manual_control_sink._detectors[123] = MagicMock()
+        manual_control_sink._detectors[other_user_id] = MagicMock()
+        manual_control_sink._user_audio_buffers[123].extend(b"current")
+        manual_control_sink._ww_resampled_buffers[123].extend(b"current")
+        manual_control_sink._user_audio_buffers[other_user_id].extend(b"other")
+        manual_control_sink._ww_resampled_buffers[other_user_id].extend(b"other")
+
+        manual_control_sink._clear_wake_word_buffers({123})
+
+        manual_control_sink._detectors[123].reset.assert_called_once()
+        manual_control_sink._detectors[other_user_id].reset.assert_not_called()
+        assert manual_control_sink._user_audio_buffers[123] == b""
+        assert manual_control_sink._ww_resampled_buffers[123] == b""
+        assert manual_control_sink._user_audio_buffers[other_user_id] == b"other"
+        assert manual_control_sink._ww_resampled_buffers[other_user_id] == b"other"
 
     @pytest.mark.asyncio
     async def test_cleanup_comprehensive(self, manual_control_sink):
@@ -571,3 +767,305 @@ class TestManualControlSinkIntegration:
 
             # Verify wake word processing would occur
             assert sink._is_vad_enabled is True
+
+
+class TestStopKeywordGate:
+    """Exercise local keyword transitions without Discord, microphones, or APIs."""
+
+    @pytest.fixture(autouse=True)
+    def isolate_detector_backend(self, monkeypatch):
+        # This fixture mocks Sherpa; a developer's Paraformer .env must not
+        # instantiate the real backend or change which receive path is tested.
+        monkeypatch.setattr(Config, "WAKE_WORD_ENGINE", "sherpa_onnx")
+
+    @pytest.mark.asyncio
+    async def test_repeat_shut_up_dispatches_after_input_already_muted(self):
+        sink = self.make_sink()
+        user = MagicMock(id=123)
+        with sink._user_data_lock:
+            sink._handle_keyword_prediction_locked(user, {"结束": 1.0})
+            first_count = sink._loop.call_soon_threadsafe.call_count
+            sink._handle_keyword_prediction_locked(user, {"闭嘴": 1.0})
+            sink._handle_keyword_prediction_locked(user, {"闭嘴": 1.0})
+        assert sink._loop.call_soon_threadsafe.call_count == first_count + 2
+        assert sink.is_user_input_blocked(123)
+        sink.cleanup()
+
+    def make_sink(self):
+        state = MagicMock(spec=BotState)
+        state.current_state = BotStateEnum.RECORDING
+        state.current_session_id = 100
+        state.authority_user_id = 123
+        state.is_authorized.side_effect = lambda user: user.id == 123
+        state.is_active_participant.return_value = True
+        with patch("src.audio.sinks.SherpaWakeWordModel"), patch.object(ManualControlSink, "start"):
+            sink = ManualControlSink(state, {123, 456}, AsyncMock(), AsyncMock(),
+                                     asyncio.Lock(), on_recording_audio_chunk=AsyncMock(),
+                                     on_stop_word_detected=AsyncMock())
+        sink._loop = MagicMock()
+        # Close queued coroutine objects: routing is tested by guild/coordinator
+        # tests, while these tests exercise the synchronous receive boundary.
+        sink._loop.call_soon_threadsafe.side_effect = lambda callback, coro: coro.close()
+        return sink
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("keyword", ["闭嘴", "结束"])
+    async def test_stop_blocks_only_speaker_and_wake_reopens(self, keyword):
+        sink = self.make_sink()
+        user = MagicMock(id=123)
+        sink._authority_buffer.extend(b"unsent command")
+        other_model = sink._detectors[456]
+        with sink._user_data_lock:
+            assert sink._handle_keyword_prediction_locked(user, {keyword: 1.0})
+        assert sink.is_user_input_blocked(123)
+        assert not sink.is_user_input_blocked(456)
+        assert not sink._authority_buffer
+        other_model.reset.assert_not_called()
+        with sink._user_data_lock:
+            sink._handle_keyword_prediction_locked(user, {"unrelated": 1.0})
+        assert sink.is_user_input_blocked(123)
+        with sink._user_data_lock:
+            sink._handle_keyword_prediction_locked(user, {Config.WAKE_WORD_PHRASE: 1.0})
+        assert not sink.is_user_input_blocked(123)
+        sink.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_detection_frame_and_muted_frames_never_schedule_audio(self):
+        sink = self.make_sink()
+        user = MagicMock(id=123)
+        frame = MagicMock(pcm=b"\0" * Config.VAD_PROCESSING_CHUNK)
+        sink._resample_and_convert = MagicMock(return_value=b"\0" * Config.WAKE_WORD_CHUNK_SIZE)
+        sink._detectors[123].predict.return_value = {"闭嘴": 1.0}
+        with patch("asyncio.run_coroutine_threadsafe") as submit:
+            sink.write(user, frame)
+            sink._detectors[123].predict.return_value = {Config.WAKE_WORD_PHRASE: 0.0}
+            sink.write(user, frame)
+        assert sink.is_user_input_blocked(123)
+        submit.assert_not_called()
+        sink.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_queued_audio_stays_discarded_after_stop_then_wake(self):
+        sink = self.make_sink()
+        user = MagicMock(id=123)
+        generation = sink.get_user_input_generation(123)
+        with sink._user_data_lock:
+            sink._handle_keyword_prediction_locked(user, {"结束": 1.0})
+            sink._handle_keyword_prediction_locked(user, {Config.WAKE_WORD_PHRASE: 1.0})
+        await sink._deliver_recording_audio_chunk(user, b"stale", generation)
+        await sink._atomic_authority_buffer_update(user, b"stale", BotStateEnum.RECORDING,
+                                                    True, generation)
+        sink._on_recording_audio_chunk.assert_not_awaited()
+        assert not sink._authority_buffer
+        await sink._deliver_recording_audio_chunk(user, b"new", sink.get_user_input_generation(123))
+        sink._on_recording_audio_chunk.assert_awaited_once_with(user, b"new")
+        sink.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_stop_finalizes_in_discord_rtp_gap_for_active_user(self):
+        sink = self.make_sink()
+        user = MagicMock(id=123)
+        sink._wakeword_users[123] = user
+        sink._wakeword_last_audio_at[123] = 10.0
+        sink._detectors[123].predict.return_value = {"结束": 1.0}
+        sink._finalize_wake_words_during_audio_gaps(now=10.5)
+        assert sink.is_user_input_blocked(123)
+        sink.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_other_user_stop_preserves_authority_audio_and_gate_survives_session(self):
+        sink = self.make_sink()
+        sink._authority_buffer.extend(b"other user speech")
+        with sink._user_data_lock:
+            sink._handle_keyword_prediction_locked(MagicMock(id=456), {"结束": 1.0})
+        assert sink._authority_buffer == b"other user speech"
+        sink._bot_state.current_session_id = 101
+        sink.update_session_id()
+        sink._clear_all_wake_word_buffers()
+        assert sink.is_user_input_blocked(456)
+        sink.cleanup()
+
+    @pytest.mark.asyncio
+    async def test_stop_can_be_disabled(self):
+        sink = self.make_sink()
+        with patch.object(Config, "STOP_WORD_ENABLED", False), sink._user_data_lock:
+            assert not sink._handle_keyword_prediction_locked(MagicMock(id=123), {"结束": 1.0})
+        assert not sink.is_user_input_blocked(123)
+        sink.cleanup()
+
+
+    @pytest.mark.asyncio
+    async def test_stale_queued_vad_and_speech_onset_do_not_cross_stop_wake(self):
+        sink = self.make_sink()
+        sink._on_active_speech_detected = AsyncMock()
+        user = MagicMock(id=123)
+        generation = sink.get_user_input_generation(123)
+        with sink._user_data_lock:
+            sink._handle_keyword_prediction_locked(user, {"结束": 1.0})
+            sink._handle_keyword_prediction_locked(user, {Config.WAKE_WORD_PHRASE: 1.0})
+        with patch.object(sink, "_process_vad") as process_vad:
+            await sink._process_vad_async(b"old audio", 123, generation)
+        await sink._notify_active_speech_detected(user, 100, generation)
+        process_vad.assert_not_called()
+        sink._on_active_speech_detected.assert_not_awaited()
+        sink.cleanup()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("keyword", ["over", "OVER"])
+    async def test_chinese_only_controls_ignore_english_over(self, keyword):
+        sink = self.make_sink()
+        with patch.object(Config, "STOP_WORD_PHRASES", ("闭嘴", "结束")):
+            assert not sink._handle_keyword_prediction_locked(MagicMock(id=123), {keyword: 1.0})
+        assert not sink.is_user_input_blocked(123)
+        sink.cleanup()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("new_owner", [123, 456])
+    async def test_invalidated_analyzer_cannot_clear_new_recording_buffers(self, new_owner):
+        sink = self.make_sink()
+        with patch("src.audio.sinks.VADAnalyzer") as analyzer_factory:
+            old_analyzer, new_analyzer = MagicMock(), MagicMock()
+            analyzer_factory.side_effect = [old_analyzer, new_analyzer]
+            sink.enable_vad(True, silence_timeout_ms=650, grace_period_ms=200)
+            old_callback = analyzer_factory.call_args.kwargs["on_speech_end"]
+            sink._authority_buffer.extend(b"previous speech")
+
+            sink.invalidate_user_input(123)
+            assert sink.get_user_input_generation(123) == 1
+            assert not sink.is_user_input_blocked(123)
+            sink._bot_state.authority_user_id = new_owner
+            sink._bot_state.current_session_id = 101
+            sink.update_session_id()
+            sink.enable_vad(True, silence_timeout_ms=650, grace_period_ms=200)
+            new_callback = analyzer_factory.call_args.kwargs["on_speech_end"]
+            sink._authority_buffer.extend(b"new owner speech")
+            sink._vad_raw_buffer.extend(b"new raw")
+            sink._vad_resampled_buffer.extend(b"new resampled")
+
+            await old_callback()
+
+            assert sink._authority_buffer == b"new owner speech"
+            assert sink._vad_raw_buffer == b"new raw"
+            assert sink._vad_resampled_buffer == b"new resampled"
+            assert sink._vad_analyzer is new_analyzer
+            assert sink._is_vad_enabled
+            sink._on_vad_speech_end.assert_not_awaited()
+
+            # The new analyzer can still finish normally with its own identity
+            # and generation snapshot; stale suppression does not mute it.
+            await new_callback()
+            await asyncio.sleep(0)
+            sink._on_vad_speech_end.assert_awaited_once_with(
+                b"new owner speech", user_id=new_owner,
+                input_generation=sink.get_user_input_generation(new_owner),
+                session_id=101,
+            )
+        sink.cleanup()
+
+@pytest.fixture
+def onset_preroll_sink():
+    """Exercise actual onset/routing logic without model or monitor background jobs."""
+    import threading
+    sink = ManualControlSink.__new__(ManualControlSink)
+    sink.cleanup = lambda: None
+    sink._user_data_lock = threading.RLock()
+    sink._action_lock = asyncio.Lock()
+    sink._active_speech_pending = set()
+    sink._active_speech_latched = set()
+    sink._active_speech_preroll = {123: bytearray()}
+    sink._active_speech_raw_buffers = {123: bytearray()}
+    sink._active_speech_resampled_buffers = {123: bytearray()}
+    sink._active_speech_vads = {123: MagicMock()}
+    sink._active_speech_vads[123].is_speech.return_value = True
+    sink._active_speech_frame_counts = {123: 0}
+    sink._active_speech_gap_counts = {123: 0}
+    sink._active_speech_last_audio_at = {}
+    sink._active_speech_last_triggered_at = {}
+    sink._input_generations = {}
+    sink._input_blocked_users = set()
+    sink._authority_buffer = bytearray()
+    sink._is_vad_enabled = False
+    sink._audio_processor = MagicMock()
+    sink._audio_processor.convert_sync.return_value = b"\0" * 1280
+    sink._loop = MagicMock()
+    sink._bot_state = MagicMock(
+        current_state=BotStateEnum.STANDBY, current_session_id=100,
+        authority_user_id=None,
+    )
+    sink._on_recording_audio_chunk = AsyncMock()
+    sink._on_active_speech_detected = AsyncMock()
+    yield sink
+    # A scheduled callback is deliberately controlled by each test.
+    for call in sink._loop.call_soon_threadsafe.call_args_list:
+        call.args[1].close()
+
+
+@pytest.mark.asyncio
+async def test_active_onset_preserves_first_syllables_and_transition_audio_once(onset_preroll_sink):
+    import threading
+    sink = onset_preroll_sink
+    sink._is_vad_enabled = True
+    sink._vad_flag_lock = threading.Lock()
+    sink._process_vad_async = AsyncMock()
+    user = MagicMock(id=123)
+    frames = [bytes([index]) * 3840 for index in range(1, 11)]
+    for frame in frames:
+        assert sink._process_active_speech_audio(user, frame)
+    sink._loop.call_soon_threadsafe.assert_called_once()
+    sink._on_recording_audio_chunk.assert_not_awaited()
+    transition_frame = b"t" * 3840
+
+    async def route(_user):
+        sink._bot_state.current_state = BotStateEnum.RECORDING
+        sink._bot_state.authority_user_id = user.id
+        sink._bot_state.current_session_id += 1
+        # Audio arriving while the routing callback is still pending must be
+        # retained with the onset, even though RECORDING is already visible.
+        assert sink._process_active_speech_audio(user, transition_frame, notify=False)
+
+    sink._on_active_speech_detected.side_effect = route
+    await sink._loop.call_soon_threadsafe.call_args.args[1]
+    expected = b"".join(frames) + transition_frame
+    sink._on_recording_audio_chunk.assert_awaited_once_with(user, expected)
+    sink._process_vad_async.assert_awaited_once_with(expected, 123, 0)
+    assert sink._has_received_audio_for_vad
+    assert bytes(sink._authority_buffer) == expected
+    assert not sink._active_speech_preroll[user.id]
+    assert user.id not in sink._active_speech_pending
+    assert not sink._process_active_speech_audio(user, b"n" * 3840, notify=False)
+    sink._on_recording_audio_chunk.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reject", ["other_owner", "stop", "new_generation"])
+async def test_onset_preroll_not_uploaded_after_routing_rejection(onset_preroll_sink, reject):
+    sink = onset_preroll_sink
+    user = MagicMock(id=123)
+    for _ in range(10):
+        sink._process_active_speech_audio(user, b"a" * 3840)
+
+    async def route(_user):
+        sink._bot_state.current_state = BotStateEnum.RECORDING
+        sink._bot_state.current_session_id += 1
+        sink._bot_state.authority_user_id = 456 if reject == "other_owner" else 123
+        if reject == "stop":
+            sink._input_blocked_users.add(123)
+        if reject == "new_generation":
+            sink._input_generations[123] = 1
+
+    sink._on_active_speech_detected.side_effect = route
+    await sink._loop.call_soon_threadsafe.call_args.args[1]
+    sink._on_recording_audio_chunk.assert_not_awaited()
+    assert not sink._authority_buffer
+    assert not sink._active_speech_preroll[123]
+
+
+def test_active_onset_preroll_is_bounded_and_reset_with_gate_state(onset_preroll_sink):
+    sink = onset_preroll_sink
+    sink._active_speech_vads[123].is_speech.return_value = False
+    user = MagicMock(id=123)
+    for _ in range(100):
+        sink._process_active_speech_audio(user, b"a" * 3840)
+    assert len(sink._active_speech_preroll[123]) == 48000 * 2 * Config.SAMPLE_WIDTH
+    sink._reset_active_speech_vad_locked(123)
+    assert not sink._active_speech_preroll[123]
