@@ -35,6 +35,11 @@ discord.utils.setup_logging(level=Config.LOG_CONSOLE_LEVEL, root=False)
 
 logger = get_logger(__name__)
 
+if Config.WAKE_WORD_ENGINE == "paraformer":
+    from src.audio.paraformer import prepare_paraformer
+    prepare_paraformer()
+
+
 # --- Set up AI Service Communication Layer ---
 # Instead of instances, we create a factory registry.
 ai_service_factories: dict[str, tuple] = {

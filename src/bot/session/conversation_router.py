@@ -48,6 +48,7 @@ class GuildConversationRouter:
         held_turn_max_seconds: float,
         held_turn_queue_max: int,
         source_bytes_per_second: int,
+        cross_user_wake_required: bool = True,
     ) -> None:
         self.active_participant_policy = SpeechPolicy(active_participant_policy)
         self.new_participant_policy = SpeechPolicy(new_participant_policy)
@@ -55,12 +56,19 @@ class GuildConversationRouter:
         self.held_turn_max_bytes = int(held_turn_max_seconds * source_bytes_per_second)
         self.held_turn_queue_max = held_turn_queue_max
         self._active_participants: set[int] = set()
+        self.cross_user_wake_required = cross_user_wake_required
+        self._floor_owner_id: Optional[int] = None
         self._held_turns: Deque[HeldTurn] = deque()
         self._last_activity_at = time.monotonic()
 
     @property
     def active_participants(self) -> set[int]:
         return self._active_participants.copy()
+
+    @property
+    def floor_owner_id(self) -> Optional[int]:
+        """The only participant allowed to continue without a new wake phrase."""
+        return self._floor_owner_id
 
     @property
     def has_held_turns(self) -> bool:
@@ -75,12 +83,15 @@ class GuildConversationRouter:
 
     def remove_participant(self, user_id: int) -> None:
         self._active_participants.discard(user_id)
+        if user_id == self._floor_owner_id:
+            self._floor_owner_id = None
         self._held_turns = deque(
             turn for turn in self._held_turns if turn.user_id != user_id
         )
 
     def release_participants(self) -> None:
         self._active_participants.clear()
+        self._floor_owner_id = None
         self._held_turns.clear()
         self.touch()
 
@@ -92,6 +103,18 @@ class GuildConversationRouter:
         agent_speaking: bool,
     ) -> TurnDisposition:
         """Authorize one utterance and choose send/barge-in/hold/ignore."""
+        if self.cross_user_wake_required and user_id != self._floor_owner_id:
+            if not via_wake_word:
+                return TurnDisposition.IGNORE
+            taking_over = self._floor_owner_id is not None
+            self._floor_owner_id = user_id
+            self._active_participants.add(user_id)
+            self.touch()
+            if taking_over:
+                return TurnDisposition.BARGE_IN
+            if not agent_speaking:
+                return TurnDisposition.SEND
+            return TurnDisposition(self.new_participant_policy.value)
         is_active = user_id in self._active_participants
         if not is_active:
             if not via_wake_word:
@@ -101,12 +124,16 @@ class GuildConversationRouter:
         else:
             policy = self.active_participant_policy
 
+        self._floor_owner_id = user_id
+
         self.touch()
         if not agent_speaking:
             return TurnDisposition.SEND
         return TurnDisposition(policy.value)
 
     def enqueue_held_turn(self, turn: HeldTurn) -> None:
+        if self.cross_user_wake_required and turn.user_id != self._floor_owner_id:
+            return
         audio_data = turn.audio_data[: self.held_turn_max_bytes]
         bounded_turn = HeldTurn(
             user_id=turn.user_id,
@@ -121,6 +148,13 @@ class GuildConversationRouter:
 
     def pop_held_turn(self) -> Optional[HeldTurn]:
         if not self._held_turns:
+            return None
+        if self.cross_user_wake_required:
+            for turn in self._held_turns:
+                if turn.user_id == self._floor_owner_id:
+                    self._held_turns.remove(turn)
+                    self.touch()
+                    return turn
             return None
         self.touch()
         return self._held_turns.popleft()

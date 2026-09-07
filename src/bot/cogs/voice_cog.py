@@ -9,7 +9,7 @@ bot to support concurrent voice sessions across multiple guilds.
 
 import asyncio
 from collections import defaultdict
-from typing import Dict
+from typing import Dict, Optional
 
 import discord
 from discord.ext import commands
@@ -22,6 +22,23 @@ from src.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+
+class _AutoConnectContext:
+    """Minimal command context used for configured startup connections."""
+
+    def __init__(
+        self,
+        guild: discord.Guild,
+        author: discord.Member,
+        channel: discord.TextChannel,
+    ) -> None:
+        self.guild = guild
+        self.author = author
+        self.channel = channel
+
+    async def send(self, content: str, **kwargs) -> discord.Message:
+        return await self.channel.send(content, **kwargs)
 
 
 class VoiceCog(commands.Cog):
@@ -50,6 +67,7 @@ class VoiceCog(commands.Cog):
         self.ai_service_factories = ai_service_factories
         self._sessions: Dict[int, GuildSession] = {}
         self._session_locks: Dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._auto_connect_task: Optional[asyncio.Task] = None
         logger.info("VoiceCog initialized.")
 
     @staticmethod
@@ -86,11 +104,93 @@ class VoiceCog(commands.Cog):
         Clean up all active sessions when the cog is unloaded.
         """
         logger.info(f"Unloading VoiceCog, cleaning up {len(self._sessions)} sessions.")
+        if self._auto_connect_task and not self._auto_connect_task.done():
+            self._auto_connect_task.cancel()
         cleanup_tasks = [session.cleanup() for session in self._sessions.values()]
         if cleanup_tasks:
             await asyncio.gather(*cleanup_tasks, return_exceptions=True)
         self._sessions.clear()
         logger.info("All active sessions cleaned up.")
+
+    @commands.Cog.listener()
+    async def on_ready(self) -> None:
+        """Join the configured voice channel after Discord is ready."""
+        if not Config.AUTO_CONNECT_ENABLED:
+            return
+        if self._auto_connect_task and not self._auto_connect_task.done():
+            return
+        self._auto_connect_task = asyncio.create_task(self._try_auto_connect())
+
+    async def _try_auto_connect(
+        self, preferred_member: Optional[discord.Member] = None
+    ) -> bool:
+        """Start a configured session when a human is present in the target channel."""
+        guild_id = Config.AUTO_CONNECT_GUILD_ID
+        voice_channel_id = Config.AUTO_CONNECT_VOICE_CHANNEL_ID
+        if guild_id is None or voice_channel_id is None:
+            return False
+
+        guild = self.bot.get_guild(guild_id)
+        if guild is None:
+            logger.warning("Auto-connect guild %s is not available.", guild_id)
+            return False
+        if guild.id in self._sessions:
+            return True
+
+        voice_channel = guild.get_channel(voice_channel_id)
+        if not isinstance(voice_channel, (discord.VoiceChannel, discord.StageChannel)):
+            logger.warning(
+                "Auto-connect voice channel %s is not available in guild %s.",
+                voice_channel_id,
+                guild_id,
+            )
+            return False
+
+        member = preferred_member
+        if (
+            member is None
+            or member.bot
+            or member.voice is None
+            or member.voice.channel != voice_channel
+        ):
+            member = next((item for item in voice_channel.members if not item.bot), None)
+        if member is None:
+            logger.info(
+                "Auto-connect is waiting for a human to join voice channel %s.",
+                voice_channel_id,
+            )
+            return False
+
+        text_channel = None
+        if Config.AUTO_CONNECT_TEXT_CHANNEL_ID is not None:
+            configured_text_channel = guild.get_channel(
+                Config.AUTO_CONNECT_TEXT_CHANNEL_ID
+            )
+            if isinstance(configured_text_channel, discord.TextChannel):
+                text_channel = configured_text_channel
+        if text_channel is None:
+            candidates = [guild.system_channel, *guild.text_channels]
+            text_channel = next(
+                (
+                    item
+                    for item in candidates
+                    if item is not None
+                    and guild.me is not None
+                    and item.permissions_for(guild.me).send_messages
+                ),
+                None,
+            )
+        if text_channel is None:
+            logger.warning("Auto-connect could not find a writable text channel.")
+            return False
+
+        logger.info(
+            "Auto-connecting guild %s to voice channel %s.",
+            guild_id,
+            voice_channel_id,
+        )
+        ctx = _AutoConnectContext(guild, member, text_channel)
+        return await self._handle_connect_command(ctx)
 
     async def _handle_connect_command(self, ctx: commands.Context) -> bool:
         """
@@ -151,6 +251,15 @@ class VoiceCog(commands.Cog):
 
         session = self._sessions.get(member.guild.id)
         if not session:
+            if (
+                Config.AUTO_CONNECT_ENABLED
+                and not member.bot
+                and after.channel is not None
+                and after.channel.id == Config.AUTO_CONNECT_VOICE_CHANNEL_ID
+            ):
+                self._auto_connect_task = asyncio.create_task(
+                    self._try_auto_connect(member)
+                )
             return
 
         if member.id == self.bot.user.id:

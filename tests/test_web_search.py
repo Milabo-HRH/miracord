@@ -188,6 +188,21 @@ async def test_diagnostic_override_can_omit_reasoning():
     assert "reasoning" not in client.responses.create.call_args.kwargs
 
 
+@pytest.mark.asyncio
+async def test_publisher_targets_text_channel_without_pings_or_config_mutation():
+    ctx = SimpleNamespace(send=AsyncMock())
+    original = {"model_name": "unchanged"}
+    config = AIServiceCoordinator._config_for_channel(original, ctx)
+    result = parse_search_response(response_payload())
+    result["answer"] = "@everyone **page content** " + "x" * 4000
+    await config["on_web_search_result"](result)
+    message = ctx.send.call_args.args[0]
+    assert len(message) <= 2000
+    assert "@everyone" not in message
+    assert "]( <" not in message
+    assert "[1](<https://" in message
+    assert ctx.send.call_args.kwargs["allowed_mentions"].everyone is False
+    assert original == {"model_name": "unchanged"}
 
 
 @pytest.mark.parametrize("league,web", [(True, True), (False, True), (True, False), (False, False)])

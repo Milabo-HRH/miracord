@@ -57,3 +57,27 @@ async def test_silence_continues_without_wake_and_false_send_stops_loop():
     assert send.await_count == 3
     assert all(call.args == (bytes(3840),) for call in send.await_args_list)
     assert sink._closed
+
+
+@pytest.mark.asyncio
+async def test_desktop_session_bypasses_keyword_sink_and_prevents_provider_leak(monkeypatch):
+    monkeypatch.setattr(Config, 'DESKTOP_VOICE_ALWAYS_FORWARD', True)
+    session = GuildSession.__new__(GuildSession)
+    session.bot_state = MagicMock(active_ai_provider_name='desktop_voice')
+    session.bot_state.get_consented_user_ids.return_value = [1]
+    manager = MagicMock(processing_audio_format=(48000, 2))
+    manager.send_audio_chunk = AsyncMock(return_value=True)
+    session.ai_coordinator = MagicMock(active_ai_service_manager=manager)
+    session.voice_connection = MagicMock()
+    await session._initialize_sink()
+    sink = session._audio_sink
+    try:
+        assert isinstance(sink, ContinuousAudioSink)
+        packet(sink, 1, 7)
+        assert await sink._send_audio(sink.mix_frame())
+        assert np.all(np.frombuffer(manager.send_audio_chunk.call_args.args[0], dtype='<i2') == 7)
+        session.ai_coordinator.active_ai_service_manager = MagicMock()
+        assert not await sink._send_audio(bytes(3840))
+        assert manager.send_audio_chunk.await_count == 1
+    finally:
+        sink.cleanup()

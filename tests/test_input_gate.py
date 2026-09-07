@@ -53,3 +53,74 @@ def test_gate_closes_after_hangover_and_handles_fragmented_pcm():
     metrics = g.take_metrics()
     assert metrics['muted_frames'] > 20 and metrics['frames'] == 60
     assert g.take_metrics()['frames'] == 0
+
+
+@pytest.mark.asyncio
+async def test_provider_gate_isolates_speaker_and_generation_and_blocked_flush():
+    s = GuildSession.__new__(GuildSession)
+    s._live_send_lock = asyncio.Lock()
+    s._live_input_active = True
+    s._live_stream_revision = 1
+    s._is_user_upload_blocked = lambda user: False
+    generation = [0]
+    s._user_input_generation = lambda user: generation[0]
+    s.ai_coordinator = MagicMock()
+    s.ai_coordinator.get_processing_audio_format.return_value = (16000, 1)
+    s.ai_coordinator.send_audio_stream_chunk = AsyncMock(return_value=True)
+    def new_gate(*args, **kwargs):
+        return gate()
+    with patch.object(Config, 'VOICE_INPUT_GATE_ENABLED', True), patch(
+        'src.bot.session.guild_session.SpeechInputGate', side_effect=new_gate
+    ):
+        assert await s._send_live_provider_chunk(1, 'one', frame(3000) * 5)
+        old = s._input_gate
+        assert old.pending
+        # A new speaker must not receive the old speaker's delayed speech.
+        assert await s._send_live_provider_chunk(2, 'two', frame(0) * 5)
+        sent = s.ai_coordinator.send_audio_stream_chunk.await_args
+        assert sent.args[0] == bytes(640)
+        assert sent.kwargs['user_id'] == 2
+        assert s._input_gate is not old
+        previous = s._input_gate
+        generation[0] += 1
+        assert await s._send_live_provider_chunk(2, 'two', frame(0) * 5)
+        assert s._input_gate is not previous
+        s.ai_coordinator.send_audio_stream_chunk.reset_mock()
+        s._is_user_upload_blocked = lambda user: True
+        assert not await s._send_live_provider_chunk(2, 'two', b'', flush_gate=True)
+        s.ai_coordinator.send_audio_stream_chunk.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authorized_finish_flushes_delayed_speech_before_finalize():
+    s = GuildSession.__new__(GuildSession)
+    s._live_send_lock = asyncio.Lock()
+    s._live_input_active = True
+    s._live_stream_revision = 1
+    s._live_input_user_id, s._live_input_user_name = 1, 'one'
+    s._live_input_generation = 0
+    s._live_audio_buffer = bytearray()
+    s._live_audio_queue = asyncio.Queue()
+    s._is_user_upload_blocked = s._is_user_input_blocked = lambda user: False
+    s._user_input_generation = lambda user: 0
+    s._audio_processor = MagicMock()
+    s.bot_state = MagicMock(current_session_id=1)
+    s.ai_coordinator = MagicMock()
+    s.ai_coordinator.get_processing_audio_format.return_value = (16000, 1)
+    order = []
+    async def send(pcm, **kwargs):
+        order.append(pcm)
+        return True
+    async def finalize():
+        order.append('finalize')
+        return True
+    s.ai_coordinator.send_audio_stream_chunk = AsyncMock(side_effect=send)
+    s.ai_coordinator.finalize_audio_stream = AsyncMock(side_effect=finalize)
+    with patch.object(Config, 'VOICE_INPUT_GATE_ENABLED', True), patch(
+        'src.bot.session.guild_session.SpeechInputGate', side_effect=lambda *a, **k: gate()
+    ):
+        await s._send_live_provider_chunk(1, 'one', frame(3000) * 5)
+        assert await s._finish_live_audio_input(finalize=True, flush=True)
+    assert order[-1] == 'finalize'
+    assert b''.join(order[:-1]) == frame(3000) * 5
+    assert s._input_gate is None

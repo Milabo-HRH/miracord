@@ -14,6 +14,9 @@ from discord.ext import commands
 
 from src.bot.session.guild_session import GuildSession
 from src.bot.state import BotStateEnum, RecordingMethod
+from src.ai_services.interface import ProviderCapabilities
+from src.audio.sinks import ManualControlSink
+from src.config.config import Config
 
 
 class TestGuildSessionLiveAudioStreaming:
@@ -89,6 +92,126 @@ class TestGuildSessionLiveAudioStreaming:
         assert session._agent_response_pending is True
         assert session._response_playback_seen is False
         assert session._live_input_active is False
+
+    @pytest.mark.asyncio
+    async def test_failed_tail_upload_does_not_finalize(self):
+        session = GuildSession.__new__(GuildSession)
+        session._live_input_active = True
+        session._live_input_user_id = 42
+        session._live_input_user_name = "Alice"
+        session._live_audio_queue = asyncio.Queue()
+        session._live_audio_buffer = bytearray(b"tail")
+        session._send_live_provider_chunk = AsyncMock(return_value=False)
+        session.ai_coordinator = MagicMock()
+        session.ai_coordinator.get_processing_audio_format.return_value = (16000, 1)
+        session.ai_coordinator.finalize_audio_stream = AsyncMock()
+        session._audio_processor = MagicMock()
+        session.bot_state = MagicMock(current_session_id=1)
+
+        assert not await session._finish_live_audio_input(finalize=True, flush=True)
+        session.ai_coordinator.finalize_audio_stream.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_shut_up_cancels_output_but_closes_only_owning_input(self):
+        for owns_turn in [True, False]:
+            session = GuildSession.__new__(GuildSession)
+            session._action_lock = asyncio.Lock()
+            session._audio_sink = MagicMock()
+            session._audio_sink.is_user_input_blocked.return_value = True
+            session.bot_state = MagicMock(current_state=BotStateEnum.RECORDING)
+            session.bot_state.remove_active_participant = AsyncMock()
+            session.bot_state.stop_recording = AsyncMock()
+            session.conversation_router = MagicMock()
+            session.ai_coordinator = MagicMock()
+            session.ai_coordinator.end_conversation = AsyncMock()
+            session._current_turn_user_id = 42 if owns_turn else 7
+            session._live_input_user_id = session._current_turn_user_id
+            session._live_input_active = True
+            session._finish_live_audio_input = AsyncMock()
+            session._interrupt_ongoing_playback = AsyncMock()
+
+            await session.on_stop_word_detected(MagicMock(id=42), "闭嘴")
+            session.ai_coordinator.end_conversation.assert_awaited_once_with(reason="explicit_stop")
+
+            session.bot_state.remove_active_participant.assert_awaited_once_with(42)
+            session.conversation_router.remove_participant.assert_called_once_with(42)
+            assert session._interrupt_ongoing_playback.await_count == 1
+            assert session._finish_live_audio_input.await_count == int(owns_turn)
+            assert session.bot_state.stop_recording.await_count == int(owns_turn)
+
+    @pytest.mark.asyncio
+    async def test_new_wake_supersedes_queued_stop(self):
+        session = GuildSession.__new__(GuildSession)
+        session._action_lock = asyncio.Lock()
+        session._audio_sink = MagicMock()
+        session._audio_sink.is_user_input_blocked.return_value = False
+        session.bot_state = AsyncMock()
+        await session.on_stop_word_detected(MagicMock(id=42), "over")
+        session.bot_state.remove_active_participant.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_queued_audio_generation_before_stop_is_discarded_after_wake(self):
+        session = GuildSession.__new__(GuildSession)
+        session._live_audio_queue = asyncio.Queue()
+        session._live_audio_buffer = bytearray(b"stale partial")
+        session._live_input_active = True
+        session._live_input_user_id = 42
+        session._live_input_user_name = "Alice"
+        session._live_input_generation = 1
+        session._audio_sink = MagicMock()
+        session._audio_sink.get_user_input_generation.return_value = 3
+        session.guild = MagicMock(id=123)
+        session.ai_coordinator = MagicMock()
+        session.ai_coordinator.get_processing_audio_format.return_value = (16000, 1)
+        sent = asyncio.Event()
+
+        async def send(*_args):
+            sent.set()
+            return True
+
+        session._send_live_provider_chunk = AsyncMock(side_effect=send)
+        session._live_audio_queue.put_nowait((42, "Alice", b"old" * 3200, 1))
+        session._live_audio_queue.put_nowait((42, "Alice", b"\x02" * 3200, 3))
+        task = asyncio.create_task(session._live_audio_stream_loop())
+        try:
+            await asyncio.wait_for(sent.wait(), timeout=1)
+        finally:
+            task.cancel()
+            await task
+        assert session._send_live_provider_chunk.await_args_list[0].args[2] == b"\x02" * 3200
+
+    @pytest.mark.asyncio
+    async def test_failed_old_upload_cannot_close_restarted_stream(self):
+        session = GuildSession.__new__(GuildSession)
+        session._live_audio_queue = asyncio.Queue()
+        session._live_audio_buffer = bytearray()
+        session._live_input_active = True
+        session._live_input_user_id = 42
+        session._live_input_user_name = "Alice"
+        session._live_stream_revision = 1
+        session.guild = MagicMock(id=123)
+        session.ai_coordinator = MagicMock()
+        session.ai_coordinator.get_processing_audio_format.return_value = (16000, 1)
+        sent = asyncio.Event()
+
+        async def send(*_args):
+            if session._send_live_provider_chunk.await_count == 1:
+                session._live_stream_revision = 2
+                session._live_audio_queue.put_nowait((42, "Alice", b"\x02" * 3200, 0))
+                return False
+            sent.set()
+            return True
+
+        session._send_live_provider_chunk = AsyncMock(side_effect=send)
+        session._live_audio_queue.put_nowait((42, "Alice", b"\x01" * 3200, 0))
+        task = asyncio.create_task(session._live_audio_stream_loop())
+        try:
+            await asyncio.wait_for(sent.wait(), timeout=1)
+        finally:
+            task.cancel()
+            await task
+        assert session._live_input_active
+        assert session._send_live_provider_chunk.await_args_list[1].args[2] == b"\x02" * 3200
 
 
 class TestGuildSessionInitialization:
@@ -575,6 +698,7 @@ class TestGuildSessionPushToTalkInteractions:
 
         session.voice_connection.stop_playback.assert_called_once()
         session.ai_coordinator.cancel_ongoing_response.assert_called_once()
+        session.audio_playback_manager.interrupt_audio_stream.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_interrupt_ongoing_playback_cancel_fails(
@@ -623,10 +747,34 @@ class TestGuildSessionWakeWordInteractions:
 
         # Wrong state - already recording
         session.bot_state.current_state = BotStateEnum.RECORDING
+        session._current_turn_user_id = user.id
 
         await session.on_wake_word_detected(user)
 
         # Should not start recording
+        session.bot_state.start_recording.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_new_user_can_be_admitted_during_another_recording(
+        self, guild_session_with_mocks
+    ):
+        session = guild_session_with_mocks
+        user = MagicMock(spec=discord.User)
+        user.id = 456
+        session.bot_state.current_state = BotStateEnum.RECORDING
+        session.bot_state.is_active_participant = MagicMock(return_value=False)
+        session.conversation_router.cross_user_wake_required = False
+        session._is_agent_speaking = MagicMock(return_value=False)
+        session.conversation_router.route_speech = MagicMock()
+
+        await session.on_wake_word_detected(user)
+
+        session.conversation_router.route_speech.assert_called_once_with(
+            user.id,
+            via_wake_word=True,
+            agent_speaking=False,
+        )
+        session.bot_state.add_active_participant.assert_awaited_once_with(user.id)
         session.bot_state.start_recording.assert_not_called()
 
     @pytest.mark.asyncio
@@ -693,8 +841,8 @@ class TestGuildSessionWakeWordInteractions:
             finalize=True, flush=True
         )
         session.bot_state.stop_recording.assert_awaited_once()
-        session.conversation_router.release_participants.assert_called_once_with()
-        session.bot_state.clear_active_participants.assert_awaited_once_with()
+        session.conversation_router.release_participants.assert_not_called()
+        session.bot_state.clear_active_participants.assert_not_awaited()
         session._handle_finished_recording.assert_not_called()
 
     @pytest.mark.asyncio
@@ -899,3 +1047,482 @@ class TestGuildSessionErrorHandling:
 
         # Should not enter error state
         session.bot_state.enter_connection_error_state.assert_not_called()
+
+async def make_floor_session():
+    """Use real router, state and coordinator with a deterministic provider."""
+    guild = MagicMock(id=123)
+    with patch.multiple(
+        "src.bot.session.guild_session",
+        SessionUIManager=MagicMock(), AudioPlaybackManager=MagicMock(),
+        VoiceConnectionManager=MagicMock(), InteractionHandler=MagicMock(),
+        UnifiedAudioProcessor=MagicMock(),
+    ):
+        session = GuildSession(guild, MagicMock(), {})
+    session.audio_playback_manager.get_current_playing_response_id.return_value = None
+    session._audio_sink = MagicMock()
+    session._audio_sink.is_user_input_blocked.return_value = False
+    generations = {}
+    session._audio_sink.get_user_input_generation.side_effect = lambda user: generations.get(user, 0)
+    session._audio_sink.invalidate_user_input.side_effect = lambda user: generations.__setitem__(user, generations.get(user, 0) + 1)
+    manager = MagicMock()
+    manager.capabilities = ProviderCapabilities(realtime_audio_input=True, server_vad=True, turn_context=True)
+    manager.connection_epoch = 1
+    manager.is_connected.return_value = True
+    manager.observation_context = {}
+    manager.processing_audio_format = (16000, 1)
+    sequence = []
+
+    async def context(user, _name, **_kwargs):
+        sequence.append(("context", user))
+        return True
+
+    async def audio(pcm):
+        sequence.append(("audio", pcm))
+        return True
+
+    async def finalize():
+        sequence.append(("finalize",))
+        return True
+
+    async def cancel():
+        sequence.append(("cancel",))
+        return True
+
+    manager.send_turn_context = AsyncMock(side_effect=context)
+    manager.send_audio_chunk = AsyncMock(side_effect=audio)
+    manager.finalize_input_and_request_response = AsyncMock(side_effect=finalize)
+    manager.cancel_ongoing_response = AsyncMock(side_effect=cancel)
+    session.ai_coordinator.active_ai_service_manager = manager
+    await session.bot_state.set_state(BotStateEnum.STANDBY)
+    return session, manager, sequence
+
+
+@pytest.mark.asyncio
+async def test_wake_takeover_preserves_old_tail_before_new_identity_and_audio():
+    session, manager, sequence = await make_floor_session()
+    first, second = MagicMock(id=1, name="first"), MagicMock(id=2, name="second")
+    first.name, second.name = "first", "second"
+    await session.on_wake_word_detected(first)
+    session._live_audio_buffer.extend(b"old tail")
+    session._live_audio_queue.put_nowait((1, "first", b" old queued", 0))
+    await session.on_wake_word_detected(second)
+    assert session.conversation_router.floor_owner_id == 2
+    assert session._live_input_user_id == 2
+    assert not session.bot_state.is_active_participant(1)
+    assert await session._send_live_provider_chunk(2, "second", b"new voice")
+    assert sequence[0] == ("context", 1)
+    assert sequence[1][0] == "audio" and sequence[1][1].startswith(b"old tail old queued")
+    assert sequence[2:] == [("finalize",), ("cancel",), ("context", 2), ("audio", b"new voice")]
+    manager.send_turn_context.assert_has_awaits([call(1, "first", streaming=True), call(2, "second", streaming=True)])
+
+
+@pytest.mark.asyncio
+async def test_previous_owner_ordinary_speech_is_ignored_but_wake_reclaims_floor():
+    session, manager, sequence = await make_floor_session()
+    first, second = MagicMock(id=1), MagicMock(id=2)
+    first.name, second.name = "first", "second"
+    await session.on_wake_word_detected(first)
+    await session.on_wake_word_detected(second)
+    await session._finish_live_audio_input(finalize=False, flush=False)
+    await session.bot_state.stop_recording()
+    before = len(sequence)
+    await session.on_active_speech_detected(first)
+    assert session.bot_state.current_state == BotStateEnum.STANDBY
+    assert len(sequence) == before
+    assert not await session.ai_coordinator.send_audio_stream_chunk(b"unauthorized", 1, "first")
+    await session.on_wake_word_detected(first)
+    assert session.conversation_router.floor_owner_id == 1
+    assert session._live_input_user_id == 1
+
+
+@pytest.mark.asyncio
+async def test_stale_vad_waiting_for_action_lock_cannot_finalize_new_floor_owner():
+    session, manager, _ = await make_floor_session()
+    first, second = MagicMock(id=1), MagicMock(id=2)
+    first.name, second.name = "first", "second"
+    await session.on_wake_word_detected(first)
+    old_session = session.bot_state.current_session_id
+    await session._action_lock.acquire()
+    takeover = asyncio.create_task(session.on_wake_word_detected(second))
+    await asyncio.sleep(0)
+    stale_vad = asyncio.create_task(session.on_vad_speech_end(
+        b"old", user_id=1, input_generation=0, session_id=old_session,
+    ))
+    session._action_lock.release()
+    await asyncio.gather(takeover, stale_vad)
+    assert session._live_input_active
+    assert session._live_input_user_id == 2
+    assert session.bot_state.current_state == BotStateEnum.RECORDING
+    assert manager.finalize_input_and_request_response.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_gemini_client_vad_start_uses_short_silence_and_grace():
+    session, manager, _ = await make_floor_session()
+    manager.capabilities = ProviderCapabilities(
+        realtime_audio_input=True, server_vad=False,
+        client_vad_streaming=True, turn_context=True,
+    )
+    session._audio_sink = MagicMock(spec=ManualControlSink)
+    session._audio_sink.is_user_input_blocked.return_value = False
+    session._audio_sink.get_user_input_generation.return_value = 0
+    speaker = MagicMock(id=1)
+    speaker.name = "first"
+
+    with patch.object(Config, "GEMINI_LOCAL_VAD_SILENCE_MS", 650):
+        await session.on_wake_word_detected(speaker)
+
+    assert session._live_input_active
+    assert session._live_input_user_id == 1
+    assert session.bot_state.current_state == BotStateEnum.RECORDING
+    session._audio_sink.enable_vad.assert_called_once_with(
+        True, silence_timeout_ms=650, grace_period_ms=200,
+    )
+    session._audio_sink.update_session_id.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_gemini_short_vad_pause_finalizes_and_owner_continues_without_wake():
+    session, manager, sequence = await make_floor_session()
+    manager.capabilities = ProviderCapabilities(
+        realtime_audio_input=True, server_vad=False,
+        client_vad_streaming=True, turn_context=True,
+    )
+    speaker = MagicMock(id=1)
+    speaker.name = "first"
+    await session.on_wake_word_detected(speaker)
+    previous_session = session.bot_state.current_session_id
+    session._live_audio_buffer.extend(b"short utterance tail")
+
+    await session.on_vad_speech_end(
+        b"captured utterance", user_id=1, input_generation=0,
+        session_id=previous_session,
+    )
+
+    manager.finalize_input_and_request_response.assert_awaited_once()
+    assert sequence[0] == ("context", 1)
+    assert sequence[1][1].startswith(b"short utterance tail")
+    assert sequence[2] == ("finalize",)
+    assert session.bot_state.current_state == BotStateEnum.STANDBY
+    assert not session._live_input_active
+    assert session.bot_state.is_active_participant(1)
+    assert session.conversation_router.floor_owner_id == 1
+    assert session.conversation_router.active_participants == {1}
+
+    await session.on_active_speech_detected(speaker)
+
+    assert session._live_input_active
+    assert session._live_input_user_id == 1
+    assert session.bot_state.current_state == BotStateEnum.RECORDING
+    assert session.bot_state.current_session_id == previous_session + 1
+    assert session.conversation_router.floor_owner_id == 1
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("keyword", ["over", "结束"])
+async def test_input_end_keyword_finalizes_sent_audio_without_stopping_reply(keyword):
+    session, manager, sequence = await make_floor_session()
+    speaker = MagicMock(id=1)
+    speaker.name = "first"
+    await session.on_wake_word_detected(speaker)
+    assert await session._send_live_provider_chunk(1, "first", b"already sent question")
+    session._live_audio_buffer.extend(b"unsent stop prefix")
+    session._live_audio_queue.put_nowait((1, "first", b"unsent queued input", 0))
+    session._response_playback_seen = True
+    session._audio_sink.is_user_input_blocked.return_value = True
+    session._audio_sink.invalidate_user_input(1)
+
+    await session.on_stop_word_detected(speaker, keyword)
+
+    assert sequence == [("context", 1), ("audio", b"already sent question"), ("finalize",)]
+    manager.cancel_ongoing_response.assert_not_awaited()
+    session.voice_connection.stop_playback.assert_not_called()
+    session.audio_playback_manager.interrupt_audio_stream.assert_not_called()
+    assert session._response_playback_seen
+    assert session._agent_response_pending
+    assert not session._live_input_active
+    assert not session._live_audio_buffer
+    assert session._live_audio_queue.empty()
+    assert session.bot_state.current_state == BotStateEnum.STANDBY
+    assert not session.bot_state.is_active_participant(1)
+    assert session.conversation_router.floor_owner_id is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("keyword", ["over", "结束"])
+async def test_input_end_during_existing_reply_does_not_finalize_or_cancel_again(keyword):
+    session, manager, _ = await make_floor_session()
+    speaker = MagicMock(id=1)
+    speaker.name = "first"
+    await session.on_wake_word_detected(speaker)
+    assert await session._send_live_provider_chunk(1, "first", b"question")
+    await session._finish_live_audio_input(finalize=True, flush=True)
+    await session.bot_state.stop_recording()
+    session._response_playback_seen = True
+    session._audio_sink.is_user_input_blocked.return_value = True
+
+    await session.on_stop_word_detected(speaker, keyword)
+
+    manager.finalize_input_and_request_response.assert_awaited_once()
+    manager.cancel_ongoing_response.assert_not_awaited()
+    session.voice_connection.stop_playback.assert_not_called()
+    assert session._agent_response_pending
+    assert session._response_playback_seen
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("keyword", ["over", "结束"])
+async def test_non_owner_stop_does_not_touch_current_input_or_reply(keyword):
+    session, manager, sequence = await make_floor_session()
+    speaker = MagicMock(id=1)
+    speaker.name = "first"
+    await session.on_wake_word_detected(speaker)
+    session._live_audio_buffer.extend(b"owner pending voice")
+    session._audio_sink.is_user_input_blocked.side_effect = lambda user: user == 2
+
+    await session.on_stop_word_detected(MagicMock(id=2), keyword)
+
+    assert session._live_input_active
+    assert session._live_input_user_id == 1
+    assert session._live_audio_buffer == b"owner pending voice"
+    assert session.conversation_router.floor_owner_id == 1
+    assert session.bot_state.is_active_participant(1)
+    assert not sequence
+    manager.finalize_input_and_request_response.assert_not_awaited()
+    manager.cancel_ongoing_response.assert_not_awaited()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner_present", [True, False])
+async def test_shut_up_stops_shared_output_even_without_input_ownership(owner_present):
+    session, manager, _ = await make_floor_session()
+    if owner_present:
+        speaker = MagicMock(id=1)
+        speaker.name = "first"
+        await session.on_wake_word_detected(speaker)
+    session._audio_sink.is_user_input_blocked.return_value = True
+    for _ in range(2):
+        await session.on_stop_word_detected(MagicMock(id=2), "闭嘴")
+    assert manager.cancel_ongoing_response.await_count == 2
+    assert session.voice_connection.stop_playback.call_count == 2
+    assert session.audio_playback_manager.interrupt_audio_stream.call_count == 2
+    if owner_present:
+        assert session._live_input_user_id == 1
+        assert session.bot_state.is_active_participant(1)
+
+
+@pytest.mark.asyncio
+async def test_server_vad_safety_closure_keeps_floor_until_bilateral_idle_timer():
+    session, manager, _ = await make_floor_session()
+    speaker = MagicMock(id=1)
+    speaker.name = "first"
+    await session.on_wake_word_detected(speaker)
+    session._live_audio_buffer.extend(b"pending voice")
+
+    await session.on_vad_speech_end(
+        b"captured", user_id=1, input_generation=0,
+        session_id=session.bot_state.current_session_id,
+    )
+
+    manager.finalize_input_and_request_response.assert_awaited_once()
+    assert session.bot_state.current_state == BotStateEnum.STANDBY
+    assert session.bot_state.is_active_participant(1)
+    assert session.conversation_router.floor_owner_id == 1
+    assert session._agent_response_pending
+    # Pending response/tool work is busy even after ten seconds of user silence.
+    assert not session.conversation_router.release_if_idle(busy=True, now=100)
+    assert session.conversation_router.floor_owner_id == 1
+    assert not session.conversation_router.release_if_idle(busy=False, now=109.9)
+
+    # Once output has finished, the independent monitor owns the idle release.
+    session._agent_response_pending = False
+    session._response_pending_since = 0
+    session.conversation_router.touch(now=0)
+    released = asyncio.Event()
+    original_clear = session.bot_state.clear_active_participants
+
+    async def clear():
+        await original_clear()
+        released.set()
+
+    session.bot_state.clear_active_participants = clear
+    manager.end_conversation = AsyncMock(return_value=True)
+    monitor = asyncio.create_task(session._conversation_monitor_loop())
+    try:
+        await asyncio.wait_for(released.wait(), 1)
+    finally:
+        monitor.cancel()
+        await monitor
+    assert session.conversation_router.floor_owner_id is None
+    assert not session.bot_state.is_active_participant(1)
+    manager.end_conversation.assert_awaited_once_with(reason="idle")
+
+
+@pytest.mark.asyncio
+async def test_monitor_rechecks_playback_after_waiting_for_handoff_lock():
+    session, manager, _ = await make_floor_session()
+    manager.capabilities = ProviderCapabilities(
+        realtime_audio_input=True, client_vad_streaming=True, turn_context=True,
+    )
+    speaker = MagicMock(id=1)
+    speaker.name = "first"
+    await session.on_wake_word_detected(speaker)
+    session._finish_live_audio_input = AsyncMock()
+    observed, rechecked = asyncio.Event(), asyncio.Event()
+    calls = 0
+
+    def playback():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            observed.set()
+            return "old-response"
+        rechecked.set()
+        return None
+
+    session.audio_playback_manager.get_current_playing_response_id.side_effect = playback
+    await session._action_lock.acquire()
+    monitor = asyncio.create_task(session._conversation_monitor_loop())
+    try:
+        await asyncio.wait_for(observed.wait(), 1)
+        # The wake handler owns this lock and has replaced the old input and
+        # cancelled its playback while the monitor waits on its stale snapshot.
+        session._live_stream_revision += 1
+        session._live_input_user_id = session._current_turn_user_id = 2
+        session._live_audio_buffer.extend(b"new user voice")
+        session._action_lock.release()
+        await asyncio.wait_for(rechecked.wait(), 1)
+        await asyncio.sleep(0)
+    finally:
+        if session._action_lock.locked():
+            session._action_lock.release()
+        monitor.cancel()
+        await monitor
+
+    session._finish_live_audio_input.assert_not_awaited()
+    session._audio_sink.stop_and_get_audio.assert_not_called()
+    assert session._live_input_active
+    assert session._live_input_user_id == 2
+    assert session._live_audio_buffer == b"new user voice"
+    assert session.bot_state.current_state == BotStateEnum.RECORDING
+    assert not session._response_playback_seen
+
+
+@pytest.mark.asyncio
+async def test_native_vad_keeps_owner_audio_open_through_reply_and_next_question():
+    session, manager, sequence = await make_floor_session()
+    speaker = MagicMock(id=1)
+    speaker.name = "first"
+    await session.on_wake_word_detected(speaker)
+    assert await session._send_live_provider_chunk(1, "first", b"first question")
+    revision = session._live_stream_revision
+    seen = asyncio.Event()
+    calls = 0
+
+    def playback():
+        nonlocal calls
+        calls += 1
+        if calls >= 2:
+            seen.set()
+        return "agent-answer"
+
+    session.audio_playback_manager.get_current_playing_response_id.side_effect = playback
+    monitor = asyncio.create_task(session._conversation_monitor_loop())
+    try:
+        await asyncio.wait_for(seen.wait(), 1)
+        assert session._live_input_active
+        assert session.bot_state.current_state == BotStateEnum.RECORDING
+        assert session._live_stream_revision == revision
+        assert await session._send_live_provider_chunk(1, "first", b"second question onset")
+        assert not await session._send_live_provider_chunk(2, "other", b"unadmitted speech")
+    finally:
+        monitor.cancel()
+        await monitor
+
+    assert sequence == [("context", 1), ("audio", b"first question"),
+                        ("audio", b"second question onset")]
+    manager.finalize_input_and_request_response.assert_not_awaited()
+    manager.cancel_ongoing_response.assert_not_awaited()
+    session._audio_sink.stop_and_get_audio.assert_not_called()
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("next_speaker_id", [1, 2])
+async def test_context_failure_retires_recording_and_next_wake_can_send(next_speaker_id):
+    session, manager, sequence = await make_floor_session()
+    first = MagicMock(id=1)
+    first.name = "first"
+    await session.on_wake_word_detected(first)
+    old_session_id = session.bot_state.current_session_id
+    manager.send_turn_context.side_effect = None
+    manager.send_turn_context.return_value = False
+    session._live_audio_queue.put_nowait((1, "first", b"x" * 6400, 0))
+    session._live_audio_queue.put_nowait((1, "first", b"old queued", 0))
+    recovered = asyncio.Event()
+    original_recover = session._recover_failed_live_input
+
+    async def recover(*args):
+        await original_recover(*args)
+        recovered.set()
+
+    session._recover_failed_live_input = recover
+    task = asyncio.create_task(session._live_audio_stream_loop())
+    try:
+        await asyncio.wait_for(recovered.wait(), timeout=1)
+    finally:
+        task.cancel()
+        await task
+
+    assert session.bot_state.current_state == BotStateEnum.STANDBY
+    assert not session._live_input_active
+    assert session._live_input_user_id is None
+    assert session._current_turn_user_id is None
+    assert not session._live_audio_buffer
+    assert session._live_audio_queue.empty()
+    assert session.conversation_router.floor_owner_id == 1
+    assert session.bot_state.is_active_participant(1)
+    assert session._user_input_generation(1) == 1
+    manager.send_audio_chunk.assert_not_awaited()
+    manager.finalize_input_and_request_response.assert_not_awaited()
+    manager.cancel_ongoing_response.assert_not_awaited()
+
+    # The old sink recording cannot fall back to buffered upload after failure.
+    await session.on_vad_speech_end(
+        b"old captured recording", user_id=1, input_generation=0,
+        session_id=old_session_id,
+    )
+    manager.send_turn_context.assert_awaited_once()
+    manager.send_audio_chunk.assert_not_awaited()
+
+    manager.send_turn_context.return_value = True
+    next_speaker = MagicMock(id=next_speaker_id)
+    next_speaker.name = "next"
+    await session.on_wake_word_detected(next_speaker)
+    assert session.bot_state.current_state == BotStateEnum.RECORDING
+    assert session._live_input_user_id == next_speaker_id
+    assert session.conversation_router.floor_owner_id == next_speaker_id
+    assert await session._send_live_provider_chunk(next_speaker_id, "next", b"new speech")
+    manager.send_audio_chunk.assert_awaited_once_with(b"new speech")
+    assert manager.send_turn_context.await_args.args[0] == next_speaker_id
+
+
+@pytest.mark.asyncio
+async def test_failed_stream_recovery_waiting_for_lock_cannot_retire_new_owner():
+    session, manager, _ = await make_floor_session()
+    first, second = MagicMock(id=1), MagicMock(id=2)
+    first.name, second.name = "first", "second"
+    await session.on_wake_word_detected(first)
+    old_revision = session._live_stream_revision
+    await session._action_lock.acquire()
+    takeover = asyncio.create_task(session.on_wake_word_detected(second))
+    await asyncio.sleep(0)
+    recovery = asyncio.create_task(session._recover_failed_live_input(1, old_revision, 0))
+    await asyncio.sleep(0)
+    session._action_lock.release()
+    await asyncio.gather(takeover, recovery)
+
+    assert session._live_input_active
+    assert session._live_input_user_id == 2
+    assert session._current_turn_user_id == 2
+    assert session.bot_state.current_state == BotStateEnum.RECORDING
+    assert session.conversation_router.floor_owner_id == 2
+    assert session._user_input_generation(2) == 0
+    assert await session._send_live_provider_chunk(2, "second", b"new owner audio")
+    manager.send_audio_chunk.assert_awaited_once_with(b"new owner audio")
