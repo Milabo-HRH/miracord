@@ -1,0 +1,357 @@
+{
+  "schema_version": 1,
+  "origin": "Reviewed synthetic regressions inspired by gameplay; no personal data; facts are frozen test inputs, not current recommendations",
+  "cases": [
+    {
+      "id": "brief_tier_no_source",
+      "question": "那安蓓萨是T几？",
+      "history": [
+        [
+          "user",
+          "我想问安蓓萨的评级。"
+        ],
+        [
+          "assistant",
+          "已查到：安蓓萨 T3，来源 OP.GG。"
+        ]
+      ],
+      "tool_calls": [],
+      "expected": {
+        "tool_names": [],
+        "answer_contains": [
+          "T3"
+        ],
+        "answer_not_regex": [
+          "op\\.?gg",
+          "(你想|你要|需要|要不要).*(了解|知道|查).*吗"
+        ],
+        "max_answer_chars": 45
+      },
+      "review_rubric": [
+        "Reuse known tier; no routine provenance or closing offer"
+      ]
+    },
+    {
+      "id": "source_when_asked",
+      "question": "这个评级是哪来的？",
+      "history": [
+        [
+          "user",
+          "安蓓萨T几？"
+        ],
+        [
+          "assistant",
+          "安蓓萨 T3；刚才查询的数据来源是 OP.GG。"
+        ]
+      ],
+      "tool_calls": [],
+      "expected": {
+        "tool_names": [],
+        "answer_contains_any": [
+          [
+            "OP.GG",
+            "OPGG"
+          ]
+        ],
+        "max_answer_chars": 65
+      },
+      "review_rubric": [
+        "Explicit source question must retain attribution"
+      ]
+    },
+    {
+      "id": "regional_name_original_query",
+      "question": "射手法师这个强化的英文名是什么？",
+      "tool_calls": [
+        {
+          "name": "resolve_game_name",
+          "arguments": {
+            "kind": "augment",
+            "query": "射手法师"
+          },
+          "result": {
+            "status": "ok",
+            "matches": [
+              {
+                "id": 1129,
+                "nameEn": "Marksmage",
+                "namesByLocale": {
+                  "zh_CN": "神射法师",
+                  "zh_MY": "射手法师",
+                  "zh_TW": "射手法師"
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "tool_names": [
+          "resolve_game_name"
+        ],
+        "answer_contains": [
+          "Marksmage"
+        ],
+        "answer_not_regex": [
+          "op\\.?gg",
+          "(你想|你要|需要|要不要).*(了解|知道|查).*吗"
+        ],
+        "max_answer_chars": 80
+      },
+      "review_rubric": [
+        "Resolve original spoken name instead of invented translation; exact arguments required"
+      ]
+    },
+    {
+      "id": "correct_name_keep_comparison",
+      "question": "我说的是射手法师，不是射手座。继续比较，我想要技能急速。",
+      "history": [
+        [
+          "user",
+          "我玩冰鸟，缩小引擎和射手座选哪个？"
+        ],
+        [
+          "assistant",
+          "已查询到本轮测试数据：缩小引擎参与击杀提供技能急速和移动速度；射手法师英文 Marksmage，普攻附带基于法强的伤害。两者都已确认是你本次提供的选项，暂无可比较的统计。"
+        ]
+      ],
+      "tool_calls": [
+        {
+          "name": "get_mayhem_augments",
+          "arguments": {
+            "champion": "anivia",
+            "query": "缩小引擎",
+            "include_descriptions": true
+          },
+          "accepted_arguments": [
+            {
+              "champion": "Anivia",
+              "query": "缩小引擎",
+              "include_descriptions": true
+            },
+            {
+              "champion": "冰鸟",
+              "query": "缩小引擎",
+              "include_descriptions": true
+            }
+          ],
+          "optional": true,
+          "result": {
+            "status": "ok",
+            "champion": "anivia",
+            "source": "synthetic fixed effect fixture; not current statistics",
+            "augments": [
+              {
+                "id": 1373,
+                "nameZh": "缩小引擎",
+                "description": "参与击杀获得技能急速和移动速度。"
+              }
+            ],
+            "totalMatched": 1
+          }
+        },
+        {
+          "name": "get_mayhem_augments",
+          "arguments": {
+            "champion": "anivia",
+            "query": "射手法师",
+            "include_descriptions": true
+          },
+          "accepted_arguments": [
+            {
+              "champion": "Anivia",
+              "query": "射手法师",
+              "include_descriptions": true
+            },
+            {
+              "champion": "冰鸟",
+              "query": "射手法师",
+              "include_descriptions": true
+            }
+          ],
+          "optional": true,
+          "result": {
+            "status": "ok",
+            "champion": "anivia",
+            "source": "synthetic fixed effect fixture; not current statistics",
+            "augments": [
+              {
+                "id": 1129,
+                "nameZh": "射手法师",
+                "description": "普攻附带基于法强的伤害。"
+              }
+            ],
+            "totalMatched": 1
+          }
+        }
+      ],
+      "expected": {
+        "answer_contains": [
+          "缩小引擎",
+          "技能急速"
+        ],
+        "answer_not_contains": [
+          "哪个英雄",
+          "你想选哪个",
+          "列表顺序"
+        ],
+        "answer_not_regex": [
+          "op\\.?gg",
+          "(你想|你要|需要|要不要).*(了解|知道|查).*吗"
+        ],
+        "max_answer_chars": 110,
+        "allowed_tool_names": [
+          "get_mayhem_augments"
+        ]
+      },
+      "review_rubric": [
+        "Choose from the stated options using the stated need; retain champion and correction"
+      ]
+    },
+    {
+      "id": "missing_recommendation_not_invalid",
+      "question": "那是不是饮血和破败都不能出？",
+      "history": [
+        [
+          "user",
+          "我玩芸阿娜，想比较饮血和破败。"
+        ],
+        [
+          "assistant",
+          "这次工具只返回了一部分推荐列表，其中没有饮血或破败；没有返回装备效果或任何禁用规则。"
+        ]
+      ],
+      "tool_calls": [],
+      "expected": {
+        "tool_names": [],
+        "answer_contains_any": [
+          [
+            "不代表",
+            "不意味着",
+            "不能说明",
+            "不是",
+            "不等于"
+          ]
+        ],
+        "answer_not_contains": [
+          "都不能出",
+          "你想出哪件"
+        ],
+        "answer_not_regex": [
+          "op\\.?gg",
+          "(你想|你要|需要|要不要).*(了解|知道|查).*吗"
+        ],
+        "max_answer_chars": 120
+      },
+      "review_rubric": [
+        "Do not infer game availability or strength from absence in recommendations"
+      ]
+    },
+    {
+      "id": "outage_not_missing_hero",
+      "question": "查一下ambessa的Mayhem英雄评级。",
+      "tool_calls": [
+        {
+          "name": "get_mayhem_champion_tier",
+          "arguments": {
+            "champion": "ambessa"
+          },
+          "result": {
+            "status": "unavailable",
+            "reason": "tool_budget_or_disabled"
+          },
+          "accepted_arguments": [
+            {
+              "champion": "Ambessa"
+            },
+            {
+              "champion": "安蓓萨"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "tool_names": [
+          "get_mayhem_champion_tier"
+        ],
+        "answer_contains_any": [
+          [
+            "失败",
+            "暂时",
+            "无法",
+            "限制",
+            "没法",
+            "不可用"
+          ]
+        ],
+        "answer_not_contains": [
+          "不存在",
+          "哪个英雄",
+          "没查到",
+          "T3"
+        ],
+        "max_answer_chars": 120
+      },
+      "review_rubric": [
+        "Execution outage is not missing entity; no invented tier"
+      ]
+    },
+    {
+      "id": "score_not_winrate",
+      "question": "79.9是不是代表79.9%的胜率？",
+      "history": [
+        [
+          "user",
+          "缩小引擎的数据是多少？"
+        ],
+        [
+          "assistant",
+          "查到 performance 79.9，没有胜率字段，也没有样本量。"
+        ]
+      ],
+      "tool_calls": [],
+      "expected": {
+        "tool_names": [],
+        "answer_contains_any": [
+          [
+            "不是",
+            "不代表",
+            "不等于"
+          ]
+        ],
+        "answer_contains": [
+          "performance"
+        ],
+        "answer_not_regex": [
+          "op\\.?gg",
+          "(你想|你要|需要|要不要).*(了解|知道|查).*吗"
+        ],
+        "max_answer_chars": 110
+      },
+      "review_rubric": [
+        "Distinguish score from win rate without repetitive source attribution"
+      ]
+    },
+    {
+      "id": "casual_speech_not_item",
+      "question": "台湾口音嘛，哈哈。",
+      "tool_calls": [],
+      "expected": {
+        "tool_names": [],
+        "answer_not_contains": [
+          "装备",
+          "强化",
+          "没查到",
+          "出装"
+        ],
+        "answer_not_regex": [
+          "op\\.?gg"
+        ],
+        "max_answer_chars": 65
+      },
+      "review_rubric": [
+        "Do not invent an equipment query; this text-turn harness requires a reply and does not test silence"
+      ]
+    }
+  ]
+}
