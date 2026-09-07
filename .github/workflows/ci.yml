@@ -8,6 +8,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.13'
+            requirements: requirements.txt
+          - python: '3.11'
+            requirements: requirements-pipecat.txt
     env:
       # Dummy values for config validation (tests use mocks, not real connections)
       DISCORD_TOKEN: "test_token_for_ci"
@@ -17,13 +25,13 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: ${{ matrix.python }}
 
       - name: Install system dependencies
         run: sudo apt-get update && sudo apt-get install -y ffmpeg libportaudio2
 
       - name: Install Python dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        run: pip install -r ${{ matrix.requirements }} -r requirements-dev.txt
 
       - name: Run tests
         run: pytest

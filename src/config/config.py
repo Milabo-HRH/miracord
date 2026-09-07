@@ -32,7 +32,7 @@ class Config:
 
     # Supported AI service providers
     SUPPORTED_AI_PROVIDERS: frozenset[str] = frozenset(
-        {"gemini", "grok", "openai", "desktop_voice"}
+        {"gemini", "grok", "openai", "desktop_voice", "pipecat"}
     )
     SUPPORTED_SPEECH_POLICIES: frozenset[str] = frozenset(
         {"barge_in", "hold", "ignore"}
