@@ -24,6 +24,8 @@ class ProviderCapabilities:
     image_input: bool = False
     realtime_audio_input: bool = False
     server_vad: bool = False
+    turn_context: bool = False
+    client_vad_streaming: bool = False
 
 
 class IRealtimeAIServiceManager(ABC):
@@ -109,6 +111,12 @@ class IRealtimeAIServiceManager(ABC):
     async def send_speaker_marker(self, user_id: int, display_name: str) -> bool:
         """Optionally add lightweight speaker context before an audio turn."""
         return True
+
+    async def send_turn_context(
+        self, user_id: int, display_name: str, *, streaming: bool = False
+    ) -> bool:
+        """Optional per-turn metadata; audio-only adapters retain their behavior."""
+        return await self.send_speaker_marker(user_id, display_name)
 
     @abstractmethod
     async def connect(
@@ -212,6 +220,10 @@ class IRealtimeAIServiceManager(ABC):
             False otherwise.
         """
         pass
+
+    async def end_conversation(self, *, reason: str) -> bool:
+        """Optional local-history boundary; ordinary interruption is not an end."""
+        return False
 
     # Note on internal event handling by implementations:
     # Concrete implementations of this interface are responsible for:

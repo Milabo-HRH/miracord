@@ -1,10 +1,9 @@
 """Configuration for xAI's Grok Speech-to-Speech WebSocket API."""
 
 import os
-from typing import Any, Dict
+from typing import Any
 
 from src.config.config import Config
-
 
 GROK_REALTIME_MODEL_NAME = os.getenv(
     "GROK_MODEL",
@@ -17,15 +16,22 @@ if Config.NATIVE_WEB_SEARCH_MODE != "off":
     if Config.GROK_X_SEARCH_ENABLED:
         GROK_TOOLS.append({"type": "x_search"})
 
-GROK_DEFAULT_SESSION_CONFIG: Dict[str, Any] = {
+GROK_DEFAULT_SESSION_CONFIG: dict[str, Any] = {
     "voice": os.getenv("GROK_VOICE", "eve"),
     "instructions": os.getenv(
         "GROK_INSTRUCTIONS",
         Config.ASSISTANT_SYSTEM_INSTRUCTIONS,
     ),
-    # MIRA.CORD builds turns locally so hold never uploads audio early.
-    "turn_detection": None,
-    "reasoning": {"effort": os.getenv("GROK_REASONING_EFFORT", "high")},
+    # Held turns are buffered locally and use manual commit when released.
+    "turn_detection": {
+        "type": "server_vad",
+        "threshold": 0.5,
+        "silence_duration_ms": 600,
+        "prefix_padding_ms": 300,
+    }
+    if Config.REALTIME_SERVER_VAD
+    else None,
+    "reasoning": {"effort": os.getenv("GROK_REASONING_EFFORT", "none")},
     "audio": {
         "input": {
             "format": {"type": "audio/pcm", "rate": 16000},
@@ -39,10 +45,13 @@ GROK_DEFAULT_SESSION_CONFIG: Dict[str, Any] = {
     "tools": GROK_TOOLS,
 }
 
-GROK_SERVICE_CONFIG: Dict[str, Any] = {
+GROK_SERVICE_CONFIG: dict[str, Any] = {
     "api_key": Config.XAI_API_KEY,
     "model_name": GROK_REALTIME_MODEL_NAME,
     "session_config": GROK_DEFAULT_SESSION_CONFIG,
+    "league_context_enabled": Config.LEAGUE_CONTEXT_ENABLED,
+    "league_tools_enabled": Config.LEAGUE_TOOLS_ENABLED,
+    "opgg_prefetch_enabled": Config.OPGG_PREFETCH_ENABLED,
     "connection_timeout": Config.AI_SERVICE_CONNECTION_TIMEOUT,
     "processing_audio_frame_rate": 16000,
     "processing_audio_channels": 1,
