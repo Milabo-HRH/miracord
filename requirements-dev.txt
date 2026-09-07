@@ -2,3 +2,5 @@ pytest
 pytest-asyncio
 pytest-cov
 ruff
+# Offline recorded-audio evaluator regression tests.
+soundfile>=0.12,<1.0
