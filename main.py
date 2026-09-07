@@ -20,6 +20,8 @@ from src.ai_services.providers.desktop_voice.config import (
 from src.ai_services.providers.desktop_voice.manager import DesktopVoiceManager
 from src.ai_services.providers.gemini.config import GEMINI_SERVICE_CONFIG
 from src.ai_services.providers.gemini.manager import GeminiRealtimeManager
+from src.ai_services.providers.pipecat_voice.config import PIPECAT_SERVICE_CONFIG
+from src.ai_services.providers.pipecat_voice.manager import PipecatVoiceManager
 from src.ai_services.providers.grok.config import GROK_SERVICE_CONFIG
 from src.ai_services.providers.grok.manager import GrokRealtimeManager
 from src.ai_services.providers.openai.config import OPENAI_SERVICE_CONFIG
@@ -43,6 +45,7 @@ if Config.WAKE_WORD_ENGINE == "paraformer":
 # --- Set up AI Service Communication Layer ---
 # Instead of instances, we create a factory registry.
 ai_service_factories: dict[str, tuple] = {
+    "pipecat": (PipecatVoiceManager, PIPECAT_SERVICE_CONFIG),
     "gemini": (GeminiRealtimeManager, GEMINI_SERVICE_CONFIG),
     "grok": (GrokRealtimeManager, GROK_SERVICE_CONFIG),
     "desktop_voice": (DesktopVoiceManager, DESKTOP_VOICE_SERVICE_CONFIG),
